@@ -65,6 +65,7 @@ import org.maplibre.geojson.Feature;
 
 // --- Gson Imports ---
 import com.google.android.gms.location.DetectedActivity;
+import com.google.android.material.chip.Chip;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 
@@ -236,11 +237,19 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
     private List<LatLng> currentTrackLatLngs = new ArrayList<>(); // Maintain current points locally
 
+
+    private boolean filterAllActive = true; // Controls the "All" chip state
+    private boolean filterWalkActive = true;
+    private boolean filterBikeActive = true;
+    private boolean filterVehicleActive = true;
+
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Log.d(TAG, "onCreate");
+
+        MapLibre.getInstance(this);
 
         // Apply MapLibre Cache Size from Settings
         try {
@@ -248,9 +257,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             // Use the keys and defaults defined in SettingsActivity
             int savedCacheSizeMB = prefs.getInt(SettingsActivity.KEY_MAP_CACHE_SIZE_MB, SettingsActivity.DEFAULT_MAP_CACHE_SIZE_MB);
             long cacheSizeBytes = (long) savedCacheSizeMB * 1024 * 1024; // Convert MB to Bytes
-
-            // Get OfflineManager instance and set cache size
-            // Pass 'null' for the callback if you don't need to handle completion/errors here
             org.maplibre.android.offline.OfflineManager offlineManager = org.maplibre.android.offline.OfflineManager.getInstance(this);
             offlineManager.setMaximumAmbientCacheSize(cacheSizeBytes, new org.maplibre.android.offline.OfflineManager.FileSourceCallback() {
                 @Override
@@ -270,7 +276,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             Log.e(TAG, "Error applying MapLibre cache size setting in onCreate", e);
         }
 
-        MapLibre.getInstance(this);
+
 
         handleIntent(getIntent());
 
@@ -534,6 +540,9 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             setNorthButton = findViewById(R.id.setNorthButton);
             btnDeleteJourney = findViewById(R.id.btnDeleteJourney);
 
+
+
+
             // *** Instantiate UiUpdater AFTER finding all its required views ***
             uiUpdater = new UiUpdater(this, gpsStatusButton, transportModeIcon,
                     trackingStatusLabel, startStopFab, trackingModeSwitch);
@@ -668,6 +677,68 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         ImageButton activityInfoButton = findViewById(R.id.activityInfoButton);
         Button viewJourneysButton = findViewById(R.id.viewJourneysButton);
         Button btnToggleHeatmap = findViewById(R.id.btnToggleHeatmap);
+        Chip chipAll = findViewById(R.id.chipFilterAll);
+        Chip chipWalk = findViewById(R.id.chipFilterWalk);
+        Chip chipBike = findViewById(R.id.chipFilterBike);
+        Chip chipVehicle = findViewById(R.id.chipFilterVehicle);
+// Inside onCreate() or a setup method like setupOtherListeners()
+
+        if (chipAll != null && chipWalk != null && chipBike != null && chipVehicle != null) {
+            chipAll.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                // If "All" is checked, check all others; if unchecked, do nothing specific here (let individuals handle)
+                if (isChecked) {
+                    filterAllActive = true;
+                    filterWalkActive = true;
+                    filterBikeActive = true;
+                    filterVehicleActive = true;
+                    // Update other chips visually (optional, ChipGroup might handle some interaction)
+                    chipWalk.setChecked(true);
+                    chipBike.setChecked(true);
+                    chipVehicle.setChecked(true);
+                    Log.d(TAG, "Filter 'All' CHECKED");
+                    updateHistoricalJourneyVisibility(getCurrentEffectiveMode()); // Update map
+                } else {
+                    // Prevent unchecking "All" if it's the *only* one checked? Or allow unchecking all?
+                    // For now, just record state. Re-checking "All" handles resetting.
+                    filterAllActive = false;
+                    Log.d(TAG, "Filter 'All' UNCHECKED");
+                    // No immediate visibility update here, let individual toggles handle hiding
+                }
+            });
+
+            CompoundButton.OnCheckedChangeListener individualChipListener = (buttonView, isChecked) -> {
+                int id = buttonView.getId();
+                if (id == R.id.chipFilterWalk) {
+                    filterWalkActive = isChecked;
+                    Log.d(TAG, "Filter 'Walk' toggled: " + isChecked);
+                } else if (id == R.id.chipFilterBike) {
+                    filterBikeActive = isChecked;
+                    Log.d(TAG, "Filter 'Bike' toggled: " + isChecked);
+                } else if (id == R.id.chipFilterVehicle) {
+                    filterVehicleActive = isChecked;
+                    Log.d(TAG, "Filter 'Vehicle' toggled: " + isChecked);
+                }
+
+                // Uncheck "All" if any individual chip is unchecked
+                if (!isChecked && chipAll.isChecked()) {
+                    chipAll.setChecked(false);
+                    filterAllActive = false; // Update state
+                }
+                // Check "All" if all individuals become checked
+                else if (isChecked && filterWalkActive && filterBikeActive && filterVehicleActive && !chipAll.isChecked()) {
+                    chipAll.setChecked(true);
+                    filterAllActive = true; // Update state
+                }
+                updateHistoricalJourneyVisibility(getCurrentEffectiveMode()); // Update map
+            };
+
+            chipWalk.setOnCheckedChangeListener(individualChipListener);
+            chipBike.setOnCheckedChangeListener(individualChipListener);
+            chipVehicle.setOnCheckedChangeListener(individualChipListener);
+
+        } else {
+            Log.e(TAG, "One or more filter chips not found in layout!");
+        }
 
 
         if (setNorthButton != null) {
@@ -1740,7 +1811,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
                     if (historicalVisibilitySetting == SettingsActivity.MODE_HIDE_UNRELATED) {
                         Log.d("BroadcastDebug", "Receiver: Calling updateHistoricalPolylinesVisibility for HIDE_UNRELATED check. Mode: " + displayMode); // <-- ADD LOG
-                        updateHistoricalPolylinesVisibility(displayMode); // Update based on current mode
+                        updateHistoricalJourneyVisibility(displayMode); // Update based on current mode
                     }
 
                     // Update Polyline Source (only add point if recording)
@@ -1821,6 +1892,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             }
             // --- Handle Detected Activity (for UI feedback when inactive) ---
             else if (LocationTrackingService.ACTION_ACTIVITY_DETECTED.equals(action)) {
+                updateHistoricalJourneyVisibility(null);
                 String detectedMode = intent.getStringExtra(LocationTrackingService.EXTRA_DETECTED_ACTIVITY_STRING);
                 if (detectedMode == null) detectedMode = "Unknown";
                 Log.d("MainActivityReceiver", "Received ACTION_ACTIVITY_DETECTED: Detected Mode = " + detectedMode);
@@ -1964,7 +2036,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
         initializeCurrentPolyline(initialMode);
         updateCurrentPolylineStyle(initialMode);
-        Log.d(TAG, "startTracking: Calling updateHistoricalPolylinesVisibility with mode: " + initialMode);
         updateHistoricalPolylinesVisibility(initialMode); // <-- CALL HERE
 
         if (currentPolylineAnimator != null ) {
@@ -1974,6 +2045,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
         Log.i(TAG, "Starting Tracking...");
         isTrackingActive = true;
+        updateHistoricalJourneyVisibility(initialMode);
         if (uiUpdater != null) {
             // Pass false for isTrackingActive and "Still" for effectiveMode
             uiUpdater.updateStartStopButtonState(isTrackingActive, "Still");
@@ -2036,6 +2108,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         clearOverrideMode();
         Log.i(TAG, "Stopping Tracking...");
         isTrackingActive = false;
+        updateHistoricalJourneyVisibility(null);
         if (uiUpdater != null) {
             // Pass false for isTrackingActive and "Still" for effectiveMode
             uiUpdater.updateStartStopButtonState(isTrackingActive, "Still");
@@ -3686,6 +3759,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         // Set initial visibility based on current tracking state
 
         Log.i(TAG_LOAD, "onJourneysLoaded (Variable Weighting): Finished processing all groups. Final displayed polyline list size: " + displayedJourneyDetailsList.size());
+        updateHistoricalJourneyVisibility(null); // Apply initial filter state (not tracking yet)
         mapView.invalidate(); // Final invalidation
         isJourneyDataLoaded = true; // Mark loading complete
 
@@ -5084,6 +5158,118 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             }
             Log.i(TAG, ">>> updateHistoricalPolylinesVisibility FINISHED processing layers."); // LOG ADDED
         });
+    }
+
+    // Inside MainActivity.java
+
+    /**
+     * Updates the visibility of historical journey layers based on BOTH
+     * the current tracking state/settings AND the active filter buttons.
+     *
+     * @param currentTrackingMode The mode currently being tracked live ("Walking", etc.),
+     * or null if tracking is inactive.
+     */
+    private void updateHistoricalJourneyVisibility(@Nullable String currentTrackingMode) {
+        if (maplibreMap == null) {
+            Log.w(TAG, "updateHistoricalJourneyVisibility: maplibreMap is null.");
+            return;
+        }
+        final boolean isCurrentlyTracking = isTrackingActive; // Use MainActivity's tracking flag
+        final int setting = historicalVisibilitySetting; // Use loaded setting
+
+        // Use local copies of filter state for thread safety within the lambda
+        final boolean showWalk = filterWalkActive;
+        final boolean showBike = filterBikeActive;
+        final boolean showVehicle = filterVehicleActive;
+        // No need for showAll here, logic depends on individual flags
+
+        Log.i(TAG, ">>> updateHistoricalJourneyVisibility ENTERED. Tracking=" + isCurrentlyTracking
+                + ", Setting=" + setting + ", CurrentMode=" + currentTrackingMode
+                + ", Filters[W:" + showWalk + " B:" + showBike + " V:" + showVehicle + "]");
+
+        maplibreMap.getStyle(style -> { // Operate within the style callback
+            Log.d(TAG, "updateHistoricalJourneyVisibility: Inside getStyle callback.");
+            if (style == null || !style.isFullyLoaded()) {
+                Log.w(TAG, "updateHistoricalJourneyVisibility: Style not ready in callback.");
+                return;
+            }
+            Log.d(TAG, "updateHistoricalJourneyVisibility: Looping through " + displayedJourneyDetailsList.size() + " displayed journeys.");
+
+            for (int i = 0; i < displayedJourneyDetailsList.size(); i++) {
+                String layerId = HISTORICAL_LAYER_PREFIX + i;
+                Layer layer = style.getLayer(layerId);
+
+                if (layer instanceof LineLayer) {
+                    boolean isVisible = true; // Start assuming visible
+
+                    // --- Filter Button Logic ---
+                    JourneyDetails historicalDetails = (i < displayedJourneyDetailsList.size()) ? displayedJourneyDetailsList.get(i) : null;
+                    if (historicalDetails != null) {
+                        String historicalMode = historicalDetails.getDominantMode();
+                        boolean filterAllows = false;
+                        if (historicalMode.equals("Walking") && showWalk) filterAllows = true;
+                        else if (historicalMode.equals("Bicycling") && showBike) filterAllows = true;
+                        else if (historicalMode.equals("In Vehicle") && showVehicle) filterAllows = true;
+                        else if (historicalMode.equals("Unknown") || historicalMode.equals("Still")) {
+                            // Decide how to handle Unknown/Still - show if 'All' is checked? Or always show?
+                            // Let's show them if any filter is active, effectively treating them as "Other"
+                            // Or maybe only if filterAllActive is true? Let's try showing if any filter is on.
+                            filterAllows = showWalk || showBike || showVehicle;
+                            // Alternatively: filterAllows = filterAllActive;
+                        }
+
+                        if (!filterAllows) {
+                            isVisible = false; // Hide if filters don't allow this mode
+                            Log.v(TAG, " Hiding layer " + layerId + " due to filter state.");
+                        }
+                    } else {
+                        isVisible = false; // Hide if details are missing
+                        Log.w(TAG, " Hiding layer " + layerId + " because JourneyDetails are null.");
+                    }
+
+                    // --- Tracking State Logic (Only apply if filter allows visibility) ---
+                    if (isVisible && isCurrentlyTracking) {
+                        // Apply Hide All / Hide Unrelated rules
+                        if (setting == SettingsActivity.MODE_HIDE_ALL) {
+                            isVisible = false;
+                            Log.v(TAG, " Hiding layer " + layerId + " due to MODE_HIDE_ALL setting.");
+                        } else if (setting == SettingsActivity.MODE_HIDE_UNRELATED) {
+                            boolean isCurrentModeActiveMovement = currentTrackingMode != null &&
+                                    (currentTrackingMode.equals("Walking") ||
+                                            currentTrackingMode.equals("Bicycling") ||
+                                            currentTrackingMode.equals("In Vehicle"));
+
+                            if (isCurrentModeActiveMovement && historicalDetails != null) {
+                                String historicalMode = historicalDetails.getDominantMode();
+                                // Hide if historical mode is known and differs from the active current mode
+                                if (!historicalMode.equals("Unknown") &&
+                                        !historicalMode.equals(currentTrackingMode)) {
+                                    isVisible = false;
+                                    Log.v(TAG, " Hiding layer " + layerId + " due to MODE_HIDE_UNRELATED setting (Current: " + currentTrackingMode + ", Historical: " + historicalMode + ")");
+                                }
+                            }
+                        }
+                    }
+
+                    // --- Apply Final Visibility ---
+                    String targetVisibility = isVisible ? Property.VISIBLE : Property.NONE;
+                    layer.setProperties(PropertyFactory.visibility(targetVisibility));
+                    Log.v(TAG, " Set layer " + layerId + " final visibility to " + targetVisibility);
+
+                } else if (layer != null) {
+                    Log.w(TAG, "Layer " + layerId + " found but is not a LineLayer.");
+                }
+            }
+            Log.i(TAG, ">>> updateHistoricalJourneyVisibility FINISHED processing layers.");
+        });
+    }
+
+    // Helper to get the current mode for passing to the visibility function
+    private String getCurrentEffectiveMode() {
+        return isTrackingActive ? (overrideMode != null ? overrideMode : "Unknown") : null;
+        // Note: You might want a more sophisticated way to get the *actual* last detected
+        // mode from the service if override is null and tracking is active, perhaps store it?
+        // For now, "Unknown" is a safe default if tracking but no override.
     }
 
 } // --- End of MainActivity ---

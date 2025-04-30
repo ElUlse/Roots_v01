@@ -1,5 +1,5 @@
 <resources>
-    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+    <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
         <!-- Remove action bar -->
         <item name="windowNoTitle">true</item>
         <item name="windowActionBar">false</item>

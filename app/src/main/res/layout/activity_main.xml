@@ -173,6 +173,51 @@
 
     </LinearLayout>
 
+    <com.google.android.material.chip.ChipGroup
+        android:id="@+id/filterChipGroup"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginBottom="8dp"
+        app:layout_constraintBottom_toTopOf="@id/bottomControlsLayout"
+        app:layout_constraintStart_toStartOf="parent"
+        app:singleLine="true">
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chipFilterAll"
+            style="@style/Widget.MaterialComponents.Chip.Filter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="All"
+            android:checked="true"/>
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chipFilterWalk"
+            style="@style/Widget.MaterialComponents.Chip.Filter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Walk"
+            app:chipIcon="@drawable/ic_walking" android:checked="true"/>
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chipFilterBike"
+            style="@style/Widget.MaterialComponents.Chip.Filter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Bike"
+            app:chipIcon="@drawable/ic_directions_bike" android:checked="true"/>
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chipFilterVehicle"
+            style="@style/Widget.MaterialComponents.Chip.Filter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Vehicle"
+            app:chipIcon="@drawable/ic_directions_in_vehicle" android:checked="true"/>
+
+    </com.google.android.material.chip.ChipGroup>
+
+
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/startStopFab"
         android:layout_width="wrap_content"
@@ -246,6 +291,7 @@
                     android:src="@android:drawable/ic_menu_close_clear_cancel" />
 
             </LinearLayout>
+
 
             <TextView
                 android:id="@+id/tv_bottom_journey_mode"
