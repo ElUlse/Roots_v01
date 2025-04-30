@@ -2845,12 +2845,23 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
      * Hides the bottom details panel and resets any highlight.
      */
     private void hideJourneyDetailsPanel() {
-        resetHighlight(); // Remove highlight from the polyline
-        if (journeyDetailsPanel != null) {
-            journeyDetailsPanel.setVisibility(View.GONE);
+        Log.d(TAG, "Hiding journey details panel..."); // Existing log or add one
+
+        // --- Stop the polyline path animation ---
+        if (polylinePathAnimator != null) {
+            Log.d(TAG, "Stopping polyline path animation because panel is hiding."); // Add log
+            polylinePathAnimator.stopAnimation(); // <<< ADD THIS CALL
+        } else {
+            Log.w(TAG, "polylinePathAnimator is null in hideJourneyDetailsPanel, cannot stop animation.");
         }
-        currentlyDisplayedDetailIndex = -1; // Reset index
-        Log.d(TAG, "Hid journey details panel.");
+        // -----------------------------------------
+
+        resetHighlight(); // Remove highlight from the polyline (Existing)
+        if (journeyDetailsPanel != null) {
+            journeyDetailsPanel.setVisibility(View.GONE); // Hide the panel (Existing)
+        }
+        currentlyDisplayedDetailIndex = -1; // Reset index (Existing)
+        Log.d(TAG, "Hid journey details panel."); // Existing log
     }
 
     // Inside MainActivity class
@@ -3637,7 +3648,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                 }
                 // If we reach here, stored shape was invalid. Execution continues to the 'needsMatch' check below.
             }
-            // ****** END STEP 2 LOGIC ******
 
 
             // --- Decision: Match API Call OR Display Raw ---
