@@ -3947,6 +3947,12 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             Log.w(TAG, "callValhallaApi: No raw points provided for index " + journeyIndex);
             return; // Don't make call with no points
         }
+        if (journeyDetails == null) {
+            Log.e(TAG, "callValhallaApi: journeyDetails is null for index " + journeyIndex + ". Cannot determine accuracy/costing. Using defaults.");
+            // Proceed with defaults or fallback? Let's proceed with defaults for now.
+            // displayRawJourneyFallback(rawPoints, journeyIndex, journeyDetails); // Alternative: Fallback
+            // return;
+        }
 
         // --- Start of Cut Code ---
         List<ValhallaRequest.ShapePoint> shape = new ArrayList<>();
@@ -3954,8 +3960,78 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             shape.add(new ValhallaRequest.ShapePoint(p.latitude, p.longitude));
         }
         ValhallaRequest requestBody = new ValhallaRequest(shape);
+
+        // --- START DYNAMIC RADIUS LOGIC ---
+
+        // 1. Define thresholds and radii (adjust values as needed)
+        final float GOOD_ACCURACY_THRESHOLD = 15.0f; // Meters (e.g., accuracy <= 15m is good)
+        final float POOR_ACCURACY_THRESHOLD = 30.0f; // Meters (e.g., accuracy > 30m is poor)
+
+        final int SMALL_RADIUS = 25;  // Radius for good accuracy (e.g., 25m)
+        final int DEFAULT_RADIUS = 50; // Default radius (used for medium or unknown accuracy)
+        final int LARGE_RADIUS = 75;  // Radius for poor accuracy (e.g., 75m)
+
+        int radiusToUse = DEFAULT_RADIUS; // Start with default
+
+        // 2. Get average accuracy from JourneyDetails (handle null details)
+        float averageAccuracy = (journeyDetails != null) ? journeyDetails.getAverageAccuracy() : -1.0f;
+
+        // 3. Determine radius based on accuracy
+        if (averageAccuracy <= 0) {
+            // Accuracy is unknown or invalid, use default
+            radiusToUse = DEFAULT_RADIUS;
+            Log.d(TAG_MATCH_CHECK, "callValhallaApi (Index " + journeyIndex + "): Using DEFAULT search radius ("+ radiusToUse +"m) due to unknown/invalid accuracy (" + String.format("%.1f", averageAccuracy) + "m)");
+        } else if (averageAccuracy <= GOOD_ACCURACY_THRESHOLD) {
+            // Good accuracy, use smaller radius
+            radiusToUse = SMALL_RADIUS;
+            Log.d(TAG_MATCH_CHECK, "callValhallaApi (Index " + journeyIndex + "): Using SMALL search radius ("+ radiusToUse +"m) for good accuracy (" + String.format("%.1f", averageAccuracy) + "m)");
+        } else if (averageAccuracy > POOR_ACCURACY_THRESHOLD) {
+            // Poor accuracy, use larger radius
+            radiusToUse = LARGE_RADIUS;
+            Log.d(TAG_MATCH_CHECK, "callValhallaApi (Index " + journeyIndex + "): Using LARGE search radius ("+ radiusToUse +"m) for poor accuracy (" + String.format("%.1f", averageAccuracy) + "m)");
+        } else {
+            // Medium accuracy, use default
+            radiusToUse = DEFAULT_RADIUS;
+            Log.d(TAG_MATCH_CHECK, "callValhallaApi (Index " + journeyIndex + "): Using DEFAULT search radius ("+ radiusToUse +"m) for medium accuracy (" + String.format("%.1f", averageAccuracy) + "m)");
+        }
+
+        // 4. Set the calculated radius on the request body
+        requestBody.setSearchRadius(radiusToUse); // Use the setter method
+
+        // --- END DYNAMIC RADIUS LOGIC ---
+
+        // *** ADD DYNAMIC COSTING (Optional but Recommended) ***
+        String costingToSet = "auto"; // Default
+        if (journeyDetails != null) {
+            String dominantMode = journeyDetails.getDominantMode();
+            switch (dominantMode) {
+                case "Walking":    costingToSet = "pedestrian"; break;
+                case "Bicycling":  costingToSet = "bicycle";    break;
+                case "In Vehicle": costingToSet = "auto";       break;
+                // Add other cases if needed
+            }
+            Log.d(TAG_MATCH_CHECK, "callValhallaApi (Index " + journeyIndex + "): Determined costing: '" + costingToSet + "' based on dominant mode '" + dominantMode + "'");
+        } else {
+            Log.w(TAG_MATCH_CHECK, "callValhallaApi (Index " + journeyIndex + "): journeyDetails null, using default costing 'auto'");
+        }
+        requestBody.setCosting(costingToSet);
+        // *** END DYNAMIC COSTING ***
+
+
+        // *** SET GPS ACCURACY (Optional but Recommended) ***
+        if (averageAccuracy > 0 && requestBody.trace_options != null) {
+            requestBody.trace_options.gps_accuracy = averageAccuracy;
+            Log.d(TAG_MATCH_CHECK, "callValhallaApi (Index " + journeyIndex + "): Setting trace_options.gps_accuracy to: " + String.format("%.1f", averageAccuracy));
+        } else {
+            Log.d(TAG_MATCH_CHECK, "callValhallaApi (Index " + journeyIndex + "): Not setting gps_accuracy (Avg: " + String.format("%.1f", averageAccuracy) + ", Options Null: " + (requestBody.trace_options == null) + ")");
+        }
+        // *** END SET GPS ACCURACY ***
+
+
         Log.d(TAG, "Making Valhalla API call for journey index: " + journeyIndex + " with " + shape.size() + " points.");
         Call<ValhallaResponse> call = valhallaService.getTraceAttributes(VALHALLA_API_URL, requestBody);
+
+
 
         call.enqueue(new Callback<ValhallaResponse>() {
             @Override
@@ -3967,26 +4043,18 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                         List<LatLng> matchedLatLngs = decodeValhallaPolyline(encodedShape); // Use LatLng
                         if (matchedLatLngs != null && !matchedLatLngs.isEmpty()) {
                             Log.d(TAG, "Valhalla success for index " + journeyIndex + ". Updating map with MATCHED polyline.");
-
-
-
-
                                 if (journeyIndex >= 0 && journeyIndex < displayedJourneyDetailsList.size()) {
                                     JourneyDetails detailsInList = displayedJourneyDetailsList.get(journeyIndex);
                                     detailsInList.mapMatched = true; // Set the flag
                                     detailsInList.setMatchedShape(encodedShape); // Store the shape string
                                     Log.i(TAG_MATCH_CHECK, "Updated JourneyDetails in memory for index " + journeyIndex + " with matched status and shape.");
-
-                                    // Trigger saving the updated metadata
                                     saveJourneyMetadataInBackground(detailsInList);
                                 } else {
                                     Log.e(TAG, "Invalid journeyIndex (" + journeyIndex + ") after successful Valhalla response. Cannot update/save details.");
                                 }
-
+                            // --- Update map on main thread ---
                             mainThreadHandler.post(() -> {
                                 updatePolylineOnMap(journeyIndex, matchedLatLngs, journeyDetails);
-
-
                             });
                         } else {
                             Log.w(TAG, "Valhalla success but decode failed for index " + journeyIndex + ". Falling back to raw single polyline.");

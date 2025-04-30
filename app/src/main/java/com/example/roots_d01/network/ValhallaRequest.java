@@ -1,5 +1,7 @@
 package com.example.roots_d01.network; // Use your actual package name
 
+import android.util.Log;
+
 import java.util.List;
 
 // Represents the overall request body sent to Valhalla
@@ -16,6 +18,17 @@ public class ValhallaRequest {
 
     // Optional parameter controlling matching algorithm
     String shape_match = "map_snap"; // Default for potentially noisy GPS data
+
+    public void setCosting(String costing) {
+        // Optional validation: only set if not null/empty? Or allow any string?
+        if (costing != null && !costing.isEmpty()) {
+            this.costing = costing;
+            Log.d("ValhallaRequest", "Costing set to: " + this.costing); // Optional log
+        } else {
+            Log.w("ValhallaRequest", "Attempted to set null or empty costing, keeping default: " + this.costing);
+            // Or you could default back to "auto": this.costing = "auto";
+        }
+    }
 
     // Constructor
     public ValhallaRequest(List<ShapePoint> shape) {
