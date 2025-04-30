@@ -3211,66 +3211,93 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     }
 
 
+/*// Inside MainActivity.java
+
 /**
-     * Handles navigation between journeys using the Previous/Next buttons.
-     *
-     * @param direction -1 for previous, 1 for next.
-     */
-    private void navigateJourney(int direction) {
-        if (currentlyDisplayedDetailIndex == -1 || displayedJourneyDetailsList.isEmpty()) {
-            Log.d(TAG, "Navigation ignored: No details currently shown or list is empty.");
+ * Handles navigation between journeys using the Previous/Next buttons,
+ * skipping journeys hidden by the active filters.
+ *
+ * @param direction -1 for previous, 1 for next.
+ */
+private void navigateJourney(int direction) {
+    if (currentlyDisplayedDetailIndex == -1 || displayedJourneyDetailsList.isEmpty()) {
+        Log.d(TAG, "Navigation ignored: No details currently shown or list is empty.");
+        return;
+    }
+
+    int potentialNextIndex = currentlyDisplayedDetailIndex; // Start searching from current
+    int finalTargetIndex = -1; // Initialize to invalid index
+
+    // Loop forwards or backwards to find the next *visible* journey
+    while (true) {
+        potentialNextIndex += direction; // Move to next candidate index
+
+        // Check bounds
+        if (potentialNextIndex < 0 || potentialNextIndex >= displayedJourneyDetailsList.size()) {
+            Log.d(TAG, "Search reached end of list in direction " + direction + ". No further visible journey found.");
+            // Optional: Show a toast message
+            String message = (direction > 0) ? "Last journey shown" : "First journey shown";
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+            break; // Exit loop - reached end without finding match
+        }
+
+        // Get details for the candidate index
+        JourneyDetails candidateDetails = displayedJourneyDetailsList.get(potentialNextIndex);
+
+        // Check if this candidate is visible according to filters
+        if (isJourneyVisibleByFilter(candidateDetails)) {
+            finalTargetIndex = potentialNextIndex; // Found a visible one!
+            Log.d(TAG, "Found next visible journey at index " + finalTargetIndex + " in direction " + direction);
+            break; // Exit loop - found target
+        } else {
+            Log.v(TAG, "Skipping index " + potentialNextIndex + " (Mode: " + (candidateDetails != null ? candidateDetails.getDominantMode() : "null") + ") due to filters.");
+            // Continue loop to check the next one
+        }
+    } // End while loop
+
+    // --- If a valid target index was found ---
+    if (finalTargetIndex != -1) {
+        Log.d(TAG, "Navigating from index " + currentlyDisplayedDetailIndex + " to " + finalTargetIndex);
+
+        JourneyDetails newDetails = displayedJourneyDetailsList.get(finalTargetIndex);
+        if (newDetails == null) {
+            Log.e(TAG,"Cannot navigate, details null for target index " + finalTargetIndex);
             return;
         }
 
-        int newIndex = currentlyDisplayedDetailIndex + direction;
+        // --- Update UI (Highlight, Panel, Camera, Animation) ---
+        resetHighlight();
+        highlightJourney(finalTargetIndex, true);
+        showJourneyDetailsPanel(newDetails, finalTargetIndex, displayedJourneyDetailsList.size()); // Update panel
 
-        // Check bounds
-        if (newIndex >= 0 && newIndex < displayedJourneyDetailsList.size()) {
-            Log.d(TAG, "Navigating from index " + currentlyDisplayedDetailIndex + " to " + newIndex);
+        LatLngBounds journeyBounds = calculateJourneyBounds(finalTargetIndex);
+        animateCameraToBoundsWithPanelPadding(journeyBounds); // Animate camera
 
-            JourneyDetails newDetails = displayedJourneyDetailsList.get(newIndex);
-            if (newDetails == null) {
-                Log.e(TAG,"Cannot navigate, details null for new index " + newIndex);
-                return;
+        // Start path animation for the new journey
+        List<LatLng> journeyLatLngs = getGeoPointsFromPolylinePoints(newDetails.points);
+        if (journeyLatLngs.size() >= 2) {
+            List<Point> maplibrePoints = new ArrayList<>();
+            for (LatLng ll : journeyLatLngs) {
+                maplibrePoints.add(Point.fromLngLat(ll.getLongitude(), ll.getLatitude()));
             }
-
-            // Highlight and Show Panel (Order matters - show panel before calculating padding)
-            resetHighlight();
-            highlightJourney(newIndex, true);
-            showJourneyDetailsPanel(newDetails, newIndex, displayedJourneyDetailsList.size()); // Show panel
-
-            // --- Use Helper for Camera Animation ---
-            LatLngBounds journeyBounds = calculateJourneyBounds(newIndex);
-            // Use the new helper method which includes panel padding calculation
-            animateCameraToBoundsWithPanelPadding(journeyBounds); // <<< MODIFIED
-
-            // --- Start Animation for the new journey ---
-            List<LatLng> journeyLatLngs = getGeoPointsFromPolylinePoints(newDetails.points); // Use newDetails
-            if (journeyLatLngs.size() >= 2) {
-                List<Point> maplibrePoints = new ArrayList<>();
-                for (LatLng ll : journeyLatLngs) {
-                    maplibrePoints.add(Point.fromLngLat(ll.getLongitude(), ll.getLatitude()));
-                }
-                LineString lineToAnimate = LineString.fromLngLats(maplibrePoints);
-
-                Log.d(TAG, "navigateJourney: Starting animation for index: " + newIndex);
-                if (polylinePathAnimator != null) {
-                    polylinePathAnimator.startAnimation(lineToAnimate); // <<< ADDED
-                }
-            } else {
-                Log.w(TAG,"navigateJourney: Not enough points in journey " + newIndex + " to animate");
-                if (polylinePathAnimator != null) {
-                    polylinePathAnimator.stopAnimation(); // Stop previous animation if any
-                }
+            LineString lineToAnimate = LineString.fromLngLats(maplibrePoints);
+            Log.d(TAG, "navigateJourney: Starting animation for index: " + finalTargetIndex);
+            if (polylinePathAnimator != null) {
+                polylinePathAnimator.startAnimation(lineToAnimate);
             }
-            // --- End Animation Start ---
-
         } else {
-            Log.d(TAG, "Navigation ignored: New index " + newIndex + " is out of bounds.");
-            // Optionally provide feedback like a quick Toast
-            // Toast.makeText(this, (direction > 0 ? "Last journey" : "First journey"), Toast.LENGTH_SHORT).show();
+            Log.w(TAG,"navigateJourney: Not enough points in journey " + finalTargetIndex + " to animate");
+            if (polylinePathAnimator != null) {
+                polylinePathAnimator.stopAnimation();
+            }
         }
+        // --- End UI Update ---
+
+    } else {
+        // No visible journey found in the requested direction (already handled by Toast in loop)
+        Log.d(TAG, "Navigation finished: No suitable journey found in direction " + direction);
     }
+}
 
     private void setupRetrofit() {
         // Optional: Add logging interceptor for debugging network requests
@@ -5270,6 +5297,35 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         // Note: You might want a more sophisticated way to get the *actual* last detected
         // mode from the service if override is null and tracking is active, perhaps store it?
         // For now, "Unknown" is a safe default if tracking but no override.
+    }
+
+    // Inside MainActivity.java
+
+    /**
+     * Checks if a journey should be visible based on the current mode filter settings.
+     * @param details The JourneyDetails of the journey to check.
+     * @return true if the journey's mode matches an active filter, false otherwise.
+     */
+    private boolean isJourneyVisibleByFilter(JourneyDetails details) {
+        if (details == null) {
+            return false; // Cannot filter null details
+        }
+        String historicalMode = details.getDominantMode();
+
+        // Check against the active filter flags (member variables)
+        if (historicalMode.equals("Walking") && filterWalkActive) return true;
+        if (historicalMode.equals("Bicycling") && filterBikeActive) return true;
+        if (historicalMode.equals("In Vehicle") && filterVehicleActive) return true;
+
+        // Decide how to handle Unknown/Still - show if *any* main filter is active?
+        // This makes them appear unless all filters are off. Adjust if needed.
+        if ((historicalMode.equals("Unknown") || historicalMode.equals("Still")) &&
+                (filterWalkActive || filterBikeActive || filterVehicleActive)) {
+            return true;
+        }
+
+        // Default: not visible if mode doesn't match any active filter
+        return false;
     }
 
 } // --- End of MainActivity ---
