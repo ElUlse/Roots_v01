@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/settingsScrollView" android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        tools:context=".SettingsActivity">
+
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?android:attr/listDivider" android:layout_marginTop="16dp" android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Advanced"
+            android:textAppearance="?android:textAppearanceLarge"
+            android:layout_marginBottom="8dp" />
+
+
+        <Button
+            android:id="@+id/btnRematchAllJourneys"
+            style="@style/Widget.AppCompat.Button.Borderless"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="start"
+            android:layout_marginTop="8dp"
+            android:text="Re-run Map Matching for All Journeys"
+            android:textColor="@android:color/holo_blue_dark"/> <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Forces the app to re-process raw GPS data for all saved journeys using the map matching service next time they are displayed. Use if GPS data was poor or matching logic has improved."
+        android:textAppearance="?android:attr/textAppearanceSmall"
+        android:layout_marginBottom="16dp"/>
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?android:attr/listDivider" android:layout_marginTop="16dp" android:layout_marginBottom="16dp"/>
+
+
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="4dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Record Delay Distance:"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/initialDistanceValueTextView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="60dp"
+                android:gravity="end"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:text="50 m"  android:textSize="16sp"
+                android:textStyle="bold"/>
+        </LinearLayout>
+
+        <SeekBar
+            android:id="@+id/initialDistanceSeekBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="190"  android:progress="40"  android:layout_marginBottom="16dp"/>
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?android:attr/listDivider" android:layout_marginTop="16dp" android:layout_marginBottom="16dp"/>
+
+
+        <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Polyline Settings"
+        android:textAppearance="?android:textAppearanceLarge"
+        android:layout_marginBottom="16dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="16dp"> <TextView
+        android:id="@+id/polylineThicknessLabel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="Thickness:"
+        android:textSize="18sp" />
+
+        <SeekBar
+            android:id="@+id/polylineThicknessSeekBar"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="2"
+            android:max="20"
+            android:progress="5" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Transport Colors"
+        android:textAppearance="?android:textAppearanceLarge"
+        android:layout_marginBottom="16dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+        <TextView android:id="@+id/walkingColorLabel" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Walking:" android:textSize="18sp" />
+        <TextView android:id="@+id/walkingColorView" android:layout_width="48dp" android:layout_height="48dp" android:background="@color/green" android:clickable="true" android:focusable="true" android:layout_marginStart="8dp" />
+    </LinearLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+        <TextView android:id="@+id/bicyclingColorLabel" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Bicycling:" android:textSize="18sp" />
+        <TextView android:id="@+id/bicyclingColorView" android:layout_width="48dp" android:layout_height="48dp" android:background="@color/blue" android:clickable="true" android:focusable="true" android:layout_marginStart="8dp" />
+    </LinearLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="16dp">
+        <TextView android:id="@+id/inVehicleColorLabel" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="In Vehicle:" android:textSize="18sp" />
+        <TextView android:id="@+id/inVehicleColorView" android:layout_width="48dp" android:layout_height="48dp" android:background="@color/red" android:clickable="true" android:focusable="true" android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:text="Map Style"
+        android:textAppearance="?android:textAppearanceLarge"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="16dp">
+        <TextView android:id="@+id/mapStyleLabel" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Style:" android:textSize="18sp" />
+        <Spinner android:id="@+id/mapTileSourceSpinner" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1.5" />
+    </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Map Behavior"
+            android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchLockOrientation"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Lock Orientation (North Up)"
+            android:checked="true" />
+
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?android:attr/listDivider" android:layout_marginTop="16dp" android:layout_marginBottom="16dp"/>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="?android:attr/listDivider"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Historical Tracks Display"
+            android:textAppearance="?android:textAppearanceLarge"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Choose how historical tracks are shown while live tracking is active:"
+            android:textAppearance="?android:attr/textAppearanceSmall"
+            android:layout_marginBottom="8dp"/>
+
+        <RadioGroup
+            android:id="@+id/historicalVisibilityRadioGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <RadioButton
+                android:id="@+id/radioShowAllHistorical"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Show All Historical Tracks" />
+
+            <RadioButton
+                android:id="@+id/radioHideAllHistorical"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Hide All Historical Tracks During Tracking" />
+
+            <RadioButton
+                android:id="@+id/radioHideUnrelatedHistorical"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Hide Tracks with Unrelated Modes During Tracking" />
+
+        </RadioGroup>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="?android:attr/listDivider"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Manage Saved Tracks"
+        android:textAppearance="?android:textAppearanceLarge"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Delete tracks older than:" android:textSize="16sp" />
+        <TextView android:id="@+id/deletePeriodValueTextView" android:layout_width="wrap_content" android:layout_height="wrap_content" android:minWidth="50dp" android:gravity="end" android:layout_marginStart="8dp" android:layout_marginEnd="8dp" android:text="7 days" android:textSize="16sp" android:textStyle="bold"/>
+    </LinearLayout>
+
+    <SeekBar
+        android:id="@+id/deletePeriodSeekBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:max="90"
+        android:progress="7"
+        android:layout_marginBottom="8dp"/>
+
+    <Button
+        android:id="@+id/executeClearOlderTracksButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:text="Delete Older Tracks" />
+
+    <Button
+        android:id="@+id/executeClearAllTracksButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:layout_marginTop="8dp"
+        android:text="Delete ALL Tracks"
+        android:textColor="@android:color/holo_red_dark" />
+
+    <TextView
+        android:id="@+id/tracksStorageInfoTextView" android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start"
+        android:layout_marginTop="16dp"
+        android:text="Calculating track size..."
+        android:textAppearance="?android:textAppearanceMedium"/>
+
+        <TextView
+            android:id="@+id/tracksStoragePercentageTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="start"
+            android:layout_marginTop="8dp"
+            android:text="Track Storage: --%"
+            android:textAppearance="?android:textAppearanceMedium"/>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?android:attr/listDivider" android:layout_marginTop="16dp" android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Map Cache Settings"
+        android:textAppearance="?android:textAppearanceLarge"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Disk Cache Size:"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/cacheSizeValueTextView" android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="60dp"
+            android:gravity="end"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            android:text="500 MB" android:textSize="16sp"
+            android:textStyle="bold"/>
+    </LinearLayout>
+
+    <SeekBar
+        android:id="@+id/cacheSizeSeekBar" android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:max="950" android:progress="450" android:layout_marginBottom="16dp"/>
+
+    <Button
+        android:id="@+id/clearCacheButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:text="Clear Map Tile Cache" />
+
+    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?android:attr/listDivider" android:layout_marginTop="16dp" android:layout_marginBottom="16dp"/>
+
+    <Button
+        android:id="@+id/saveSettingsButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:text="Save Settings" />
+
+</LinearLayout>
+</ScrollView>
