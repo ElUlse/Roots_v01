@@ -201,7 +201,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private TextView tvBottomJourneyAccuracy;
     private JourneyManager journeyManager;
     private int highlightedJourneyIndex = -1; // Track which journey index is highlighted
-    private int pendingSelectedJourneyIndex = -1;
     private static final float MAX_DISTANCE_GAP_METERS_FOR_FORCED_MATCHING = 150.0f;
     private static final long GAP_TIME_THRESHOLD_MS = 3 * 60 * 1000;
     private static final int GAP_MATCH_CONTEXT_POINTS = 2;
@@ -295,12 +294,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
         // --- Handle MapView Lifecycle ---
         mapView.onCreate(savedInstanceState); // Pass savedInstanceState
-
-        // --- Get Map Asynchronously ---
-        // MainActivity.java
-
-        // Inside the onCreate method:
-        // MainActivity.java
 
         // Inside the onCreate method:
         mapView.getMapAsync(new OnMapReadyCallback() {
@@ -539,7 +532,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             tvBottomJourneyName = findViewById(R.id.tv_bottom_journey_name);
             btnEditJourneyName = findViewById(R.id.btnEditJourneyName);
             setNorthButton = findViewById(R.id.setNorthButton);
-
+            btnDeleteJourney = findViewById(R.id.btnDeleteJourney);
 
             // *** Instantiate UiUpdater AFTER finding all its required views ***
             uiUpdater = new UiUpdater(this, gpsStatusButton, transportModeIcon,
@@ -602,10 +595,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                 throw new NullPointerException("One or more bottom journey panel views (name/edit) not found...");
             }
 
-            btnDeleteJourney = findViewById(R.id.btnDeleteJourney);
-            if (btnDeleteJourney == null) {
-                Log.e(TAG, "onCreate: btnDeleteJourney is NULL after findViewById!");
-            }
+
 
             // --- Apply restored state to UI elements IMMEDIATELY ---
             Log.d(TAG, "onCreate: Updating UI based on potentially restored state.");
@@ -2864,8 +2854,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         Log.d(TAG, "Hid journey details panel."); // Existing log
     }
 
-    // Inside MainActivity class
-
     private void setupBottomPanelListeners() {
         if (btnCloseDetailsPanel != null) {
             btnCloseDetailsPanel.setOnClickListener(v -> hideJourneyDetailsPanel());
@@ -2880,18 +2868,26 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         }
 
         if (btnDeleteJourney != null) {
-            Log.d(TAG, "setupBottomPanelListeners: btnDeleteJourney found."); // <-- ADD THIS LOG
+            Log.d(TAG, "setupBottomPanelListeners: btnDeleteJourney found, setting listener."); // Existing log is good
 
             btnDeleteJourney.setOnClickListener(v -> {
+                Log.d(TAG, ">>> btnDeleteJourney CLICKED! Current Index: " + currentlyDisplayedDetailIndex); // Log click and index
+
                 if (currentlyDisplayedDetailIndex != -1) {
-                    Log.d(TAG, ">>> btnDeleteJourney CLICKED!"); // <-- ADD THIS LOG
-                    // Get the details object, which now contains the source filenames
+                    Log.d(TAG, "   Index is valid."); // Log valid index
                     JourneyDetails detailsToDelete = displayedJourneyDetailsList.get(currentlyDisplayedDetailIndex);
-                    showDeleteConfirmationDialog(currentlyDisplayedDetailIndex, detailsToDelete);
+                    if (detailsToDelete != null) {
+                        Log.d(TAG, "   Got details for StartTime: " + detailsToDelete.startTimeMs); // Log details retrieved
+                        showDeleteConfirmationDialog(currentlyDisplayedDetailIndex, detailsToDelete); // Call confirmation
+                    } else {
+                        Log.e(TAG, "   Error: detailsToDelete object is null for index: " + currentlyDisplayedDetailIndex); // Log null details
+                    }
                 } else {
-                    Log.e(TAG, "onCreate: btnDeleteJourney is NULL after findViewById!"); // Keep existing error log
+                    Log.w(TAG, "   Index is invalid or list empty. Index: " + currentlyDisplayedDetailIndex + ", List size: " + displayedJourneyDetailsList.size()); // Log invalid index
                 }
             });
+        } else {
+            Log.e(TAG, "onCreate: btnDeleteJourney is NULL after findViewById!"); // Keep existing error log
         }
 
         if (btnEditJourneyName != null) {
@@ -3017,13 +3013,14 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
 
     private void showDeleteConfirmationDialog(int indexToDelete, JourneyDetails details) {
-        // Use dominant mode or start time for identification in message
+        Log.d(TAG, "showDeleteConfirmationDialog called for index: " + indexToDelete);
         String journeyIdentifier = details.getDominantMode() + " journey starting " + details.getFormattedStartTime();
 
         new AlertDialog.Builder(this)
                 .setTitle("Delete Journey?")
                 .setMessage("Are you sure you want to permanently delete this " + journeyIdentifier + "?\nThis action cannot be undone.")
                 .setPositiveButton("Delete", (dialog, which) -> {
+                    Log.d(TAG, "   Dialog confirmed! Calling deleteJourney for index: " + indexToDelete);
                     deleteJourney(indexToDelete); // Call the actual delete method
                 })
                 .setNegativeButton(android.R.string.cancel, null)
@@ -3031,10 +3028,11 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                 .show();
     }
 
-    /* file: app/src/main/java/com/example/roots_d01/MainActivity.java */
-// Replace the entire deleteJourney method in MainActivity.java with this:
+
 
     private void deleteJourney(int indexToDelete) {
+        Log.d(TAG, ">>> deleteJourney entered for index: " + indexToDelete);
+
         if (indexToDelete < 0 || indexToDelete >= displayedJourneyDetailsList.size()) {
             Log.e(TAG, "Invalid index provided for deletion: " + indexToDelete);
             return;
@@ -3060,10 +3058,11 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
         // --- Delete Files in Background ---
         backgroundExecutor.execute(() -> { // Start of lambda
+            Log.d(TAG, "   deleteJourney background task started for index: " + indexToDelete);
             int deleteCount = 0;
             File directory = getExternalFilesDir(null);
             if (directory == null) {
-                Log.e(TAG, "Cannot delete files: External directory is null.");
+                Log.d(TAG, "   Finished background deletion task. Deleted " + deleteCount + " data file(s). Posting UI update..."); // Modify existing log slightly
                 mainThreadHandler.post(() -> Toast.makeText(MainActivity.this, "Error accessing storage", Toast.LENGTH_SHORT).show());
                 return; // Exit background task
             }

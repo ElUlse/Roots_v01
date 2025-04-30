@@ -296,6 +296,17 @@
                 android:textAppearance="?attr/textAppearanceBody2"
                 tools:text="Accuracy: 10.5 m" />
 
+            <Button
+                android:id="@+id/btnDeleteJourney"
+                style="@style/Widget.AppCompat.Button.Borderless"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="0dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:text="Delete"
+                android:textColor="@android:color/holo_red_dark" />
+
             <TextView
                 android:id="@+id/tv_bottom_journey_mode_breakdown"
                 android:layout_width="wrap_content"
@@ -329,17 +340,6 @@
                     android:layout_width="0dp"
                     android:layout_height="0dp"
                     android:layout_weight="1" />
-
-                <Button
-                    android:id="@+id/btnDeleteJourney"
-                    style="@style/Widget.AppCompat.Button.Borderless"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minHeight="0dp"
-                    android:paddingTop="4dp"
-                    android:paddingBottom="4dp"
-                    android:text="Delete"
-                    android:textColor="@android:color/holo_red_dark" />
 
             </LinearLayout>
 
