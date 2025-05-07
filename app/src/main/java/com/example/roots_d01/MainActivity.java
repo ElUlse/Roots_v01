@@ -677,34 +677,13 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         ImageButton activityInfoButton = findViewById(R.id.activityInfoButton);
         Button viewJourneysButton = findViewById(R.id.viewJourneysButton);
         Button btnToggleHeatmap = findViewById(R.id.btnToggleHeatmap);
-        Chip chipAll = findViewById(R.id.chipFilterAll);
         Chip chipWalk = findViewById(R.id.chipFilterWalk);
         Chip chipBike = findViewById(R.id.chipFilterBike);
         Chip chipVehicle = findViewById(R.id.chipFilterVehicle);
 // Inside onCreate() or a setup method like setupOtherListeners()
 
-        if (chipAll != null && chipWalk != null && chipBike != null && chipVehicle != null) {
-            chipAll.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                // If "All" is checked, check all others; if unchecked, do nothing specific here (let individuals handle)
-                if (isChecked) {
-                    filterAllActive = true;
-                    filterWalkActive = true;
-                    filterBikeActive = true;
-                    filterVehicleActive = true;
-                    // Update other chips visually (optional, ChipGroup might handle some interaction)
-                    chipWalk.setChecked(true);
-                    chipBike.setChecked(true);
-                    chipVehicle.setChecked(true);
-                    Log.d(TAG, "Filter 'All' CHECKED");
-                    updateHistoricalJourneyVisibility(getCurrentEffectiveMode()); // Update map
-                } else {
-                    // Prevent unchecking "All" if it's the *only* one checked? Or allow unchecking all?
-                    // For now, just record state. Re-checking "All" handles resetting.
-                    filterAllActive = false;
-                    Log.d(TAG, "Filter 'All' UNCHECKED");
-                    // No immediate visibility update here, let individual toggles handle hiding
-                }
-            });
+        if (chipWalk != null && chipBike != null && chipVehicle != null) {
+
 
             CompoundButton.OnCheckedChangeListener individualChipListener = (buttonView, isChecked) -> {
                 int id = buttonView.getId();
@@ -719,16 +698,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                     Log.d(TAG, "Filter 'Vehicle' toggled: " + isChecked);
                 }
 
-                // Uncheck "All" if any individual chip is unchecked
-                if (!isChecked && chipAll.isChecked()) {
-                    chipAll.setChecked(false);
-                    filterAllActive = false; // Update state
-                }
-                // Check "All" if all individuals become checked
-                else if (isChecked && filterWalkActive && filterBikeActive && filterVehicleActive && !chipAll.isChecked()) {
-                    chipAll.setChecked(true);
-                    filterAllActive = true; // Update state
-                }
                 updateHistoricalJourneyVisibility(getCurrentEffectiveMode()); // Update map
             };
 
