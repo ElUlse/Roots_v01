@@ -212,12 +212,12 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
 
         Log.i(TAG, "Finished grouping. List items with headers size: " + listItemsWithHeaders.size());
 
+
         // 4. Update the adapter
         if (journeyAdapter != null) {
-            // *** Use the adapter's update method ***
             journeyAdapter.updateJourneys(listItemsWithHeaders); // Pass List<Object>
 
-            // Update empty view visibility based on the *final list passed to adapter*
+            // Update empty view visibility
             if (listItemsWithHeaders.isEmpty()) {
                 emptyListTextView.setVisibility(View.VISIBLE);
                 journeyRecyclerView.setVisibility(View.GONE);
@@ -226,12 +226,52 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
                 emptyListTextView.setVisibility(View.GONE);
                 journeyRecyclerView.setVisibility(View.VISIBLE);
                 Log.d(TAG, "displayGroupedJourneys: Setting list to VISIBLE");
+
+                // --- START: Scroll to Today Logic ---
+                int todayIndex = -1;
+                for (int i = 0; i < listItemsWithHeaders.size(); i++) {
+                    Object item = listItemsWithHeaders.get(i);
+                    // Check if the item is the "Today" header string
+                    if (item instanceof String && "Today".equals(item)) {
+                        todayIndex = i;
+                        break; // Found the header
+                    }
+                    // Optional: If no "Today" header might exist,
+                    // check if the first JourneyDetails item belongs to today
+                    /* else if (item instanceof JourneyDetails && todayIndex == -1) {
+                        Calendar itemCal = Calendar.getInstance();
+                        itemCal.setTimeInMillis(((JourneyDetails) item).startTimeMs);
+                        Calendar todayCal = Calendar.getInstance();
+                        if (itemCal.get(Calendar.YEAR) == todayCal.get(Calendar.YEAR) &&
+                            itemCal.get(Calendar.DAY_OF_YEAR) == todayCal.get(Calendar.DAY_OF_YEAR)) {
+                            todayIndex = i; // Found first item of today
+                            break;
+                        }
+                    }*/
+                }
+
+                if (todayIndex != -1) {
+                    // Scroll to the found index
+                    LinearLayoutManager layoutManager = (LinearLayoutManager) journeyRecyclerView.getLayoutManager();
+                    if (layoutManager != null) {
+                        // Scrolls the item to the top of the view
+                        layoutManager.scrollToPositionWithOffset(todayIndex, 0);
+                        Log.i(TAG, "Scrolled RecyclerView to 'Today' section at index: " + todayIndex);
+                    } else {
+                        Log.e(TAG, "LayoutManager is null, cannot scroll.");
+                    }
+                } else {
+                    Log.d(TAG, "No 'Today' section found in the list, not scrolling.");
+                    // Optional: Scroll to top (index 0) if today isn't found?
+                    // journeyRecyclerView.scrollToPosition(0);
+                }
+                // --- END: Scroll to Today Logic ---
+
             }
         } else {
             Log.e(TAG, "displayGroupedJourneys: journeyAdapter is null! Cannot display list.");
         }
-    }
-
+    } // End of displayGroupedJourneys method
     private void saveJourneyMetadataInBackground(JourneyDetails details) {
         if (details == null) {
             Log.e(TAG, "saveJourneyMetadataInBackground (JourneyListActivity): Cannot save, details object is null.");
