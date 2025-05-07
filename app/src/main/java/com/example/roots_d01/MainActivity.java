@@ -148,7 +148,10 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
     private FloatingActionButton startStopFab;
     private boolean isTrackingActive = false;
-    private SwitchMaterial trackingModeSwitch;
+    private FloatingActionButton manualStopFab;
+    private MaterialButton startManualRecordButton;
+    private boolean isManualTrackingActive = false;
+    private static final String STATE_IS_MANUAL_TRACKING = "IS_MANUAL_TRACKING_ACTIVE"; // For saving state
 
     // Define constants for preference
     public static final String KEY_TRACKING_MODE = "trackingMode";
@@ -243,6 +246,13 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private boolean filterBikeActive = true;
     private boolean filterVehicleActive = true;
 
+    private MaterialButton recenterButton; // Changed from Button?
+    private MaterialButton settingsButton; // Changed from Button?
+    private MaterialButton activityInfoButton; // Already MaterialButton
+    private MaterialButton viewJourneysButton; // Changed from Button?
+    private MaterialButton btnToggleHeatmap; // Changed from Button?
+    private Chip chipWalk, chipBike, chipVehicle; // Add chipAll if used
+
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -283,10 +293,11 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         // --- Restore state ---
         if (savedInstanceState != null) {
             Log.d(TAG, "onCreate: Restoring saved instance state.");
-            isTrackingActive = savedInstanceState.getBoolean(STATE_IS_TRACKING, false);
+            isManualTrackingActive = savedInstanceState.getBoolean(STATE_IS_MANUAL_TRACKING, false);
             overrideMode = savedInstanceState.getString(STATE_OVERRIDE_MODE, null);
             Log.d(TAG, "onCreate: Restored state - isTrackingActive=" + isTrackingActive + ", overrideMode=" + overrideMode);
         } else {
+            isManualTrackingActive = false; // Default
             Log.d(TAG, "onCreate: No saved instance state found.");
         }
 
@@ -512,8 +523,9 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             mapView = findViewById(R.id.mapview);
             gpsStatusButton = findViewById(R.id.gpsStatusButton);
             transportModeIcon = findViewById(R.id.transportModeIcon);
-            startStopFab = findViewById(R.id.startStopFab);
-            trackingModeSwitch = findViewById(R.id.trackingModeSwitch);
+            manualStopFab = findViewById(R.id.manualStopFab);
+            Log.d("FAB_DEBUG", "onCreate: findViewById(R.id.manualStopFab) result is " + (manualStopFab == null ? "NULL" : "NOT NULL")); // <-- ADD THIS LINE
+            startManualRecordButton = findViewById(R.id.startManualRecordButton);
             tvBottomJourneyMode = findViewById(R.id.tv_bottom_journey_mode);
             tvBottomJourneyStartTime = findViewById(R.id.tv_bottom_journey_start_time);
             tvBottomJourneyEndTime = findViewById(R.id.tv_bottom_journey_end_time);
@@ -537,12 +549,22 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             btnEditJourneyName = findViewById(R.id.btnEditJourneyName);
             setNorthButton = findViewById(R.id.setNorthButton);
             btnDeleteJourney = findViewById(R.id.btnDeleteJourney);
+            recenterButton = findViewById(R.id.recenterButton);
+            settingsButton = findViewById(R.id.settingsButton);
+            activityInfoButton = findViewById(R.id.activityInfoButton);
+            viewJourneysButton = findViewById(R.id.viewJourneysButton);
+            btnToggleHeatmap = findViewById(R.id.btnToggleHeatmap);
+            chipWalk = findViewById(R.id.chipFilterWalk);
+            chipBike = findViewById(R.id.chipFilterBike);
+            chipVehicle = findViewById(R.id.chipFilterVehicle);
+            setNorthButton = findViewById(R.id.setNorthButton);
+
 
 
 
 
             // *** Instantiate UiUpdater AFTER finding all its required views ***
-            uiUpdater = new UiUpdater(this, gpsStatusButton, transportModeIcon,startStopFab, trackingModeSwitch);
+            uiUpdater = new UiUpdater(this, gpsStatusButton, transportModeIcon, manualStopFab);
             Log.d(TAG, "UiUpdater instantiated.");
 
             permissionHelper = new PermissionHelper(this, uiUpdater, this);
@@ -660,21 +682,13 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         }
 
     private void setupOtherListeners() {
-        Button recenterButton = findViewById(R.id.recenterButton);
-        Button settingsButton = findViewById(R.id.settingsButton);
-        MaterialButton activityInfoButton = findViewById(R.id.activityInfoButton);
-        Button viewJourneysButton = findViewById(R.id.viewJourneysButton);
-        Button btnToggleHeatmap = findViewById(R.id.btnToggleHeatmap);
-        Chip chipWalk = findViewById(R.id.chipFilterWalk);
-        Chip chipBike = findViewById(R.id.chipFilterBike);
-        Chip chipVehicle = findViewById(R.id.chipFilterVehicle);
-// Inside onCreate() or a setup method like setupOtherListeners()
+        // --- Use member variables initialized in onCreate ---
 
-        if (chipWalk != null && chipBike != null && chipVehicle != null) {
-
-
+        // Chip listeners (ensure chip variables are member variables found in onCreate)
+        if (chipWalk != null && chipBike != null && chipVehicle != null) { // Assuming chipWalk etc. are member variables
             CompoundButton.OnCheckedChangeListener individualChipListener = (buttonView, isChecked) -> {
                 int id = buttonView.getId();
+                // Check against R.id, not the variable itself
                 if (id == R.id.chipFilterWalk) {
                     filterWalkActive = isChecked;
                     Log.d(TAG, "Filter 'Walk' toggled: " + isChecked);
@@ -685,6 +699,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                     filterVehicleActive = isChecked;
                     Log.d(TAG, "Filter 'Vehicle' toggled: " + isChecked);
                 }
+                // Add logic for the "All" chip if needed, checking chipAll member variable
 
                 updateHistoricalJourneyVisibility(getCurrentEffectiveMode()); // Update map
             };
@@ -692,164 +707,231 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             chipWalk.setOnCheckedChangeListener(individualChipListener);
             chipBike.setOnCheckedChangeListener(individualChipListener);
             chipVehicle.setOnCheckedChangeListener(individualChipListener);
+            // Add listener for chipAll if it exists and is a member variable
+            // Chip chipAll = findViewById(R.id.chipFilterAll); // Find chipAll in onCreate
+            // if (chipAll != null) { chipAll.setOnCheckedChangeListener(...); }
 
         } else {
-            Log.e(TAG, "One or more filter chips not found in layout!");
+            Log.e(TAG, "One or more filter chips not found or not member variables!");
         }
 
-
-        if (setNorthButton != null) {
+        // North Button listener
+        if (setNorthButton != null) { // Use member variable
             setNorthButton.setOnClickListener(v -> {
-                if (mapView != null) {
+                if (maplibreMap != null) { // Check map object directly
                     Log.d(TAG, "Set North button clicked. Resetting orientation.");
-                    // Optional: Animate back to North
-                    // mapView.getController().animateTo(mapView.getMapCenter(), mapView.getZoomLevelDouble(), 500L, 0f);
+                    org.maplibre.android.camera.CameraPosition currentPosition = maplibreMap.getCameraPosition();
+                    org.maplibre.android.camera.CameraPosition newPosition =
+                            new org.maplibre.android.camera.CameraPosition.Builder(currentPosition)
+                                    .bearing(0)
+                                    .tilt(0)
+                                    .build();
+                    maplibreMap.easeCamera(
+                            org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(newPosition),
+                            750
+                    );
+                } else {
+                    Log.w(TAG, "Set North button clicked, but maplibreMap is null.");
                 }
-                // Button visibility will be handled by onOrientationChanged
             });
         } else {
-            Log.e(TAG, "setNorthButton not found!");
+            Log.e(TAG, "setNorthButton member variable is null!");
         }
 
-
-        activityInfoButton = findViewById(R.id.activityInfoButton);
-        if (activityInfoButton != null) {
+        // Activity Info listener
+        if (activityInfoButton != null) { // Use member variable
             activityInfoButton.setOnClickListener(v -> showActivityConfidencePopup());
         } else {
-            Log.e(TAG, "activityInfoButton not found in layout!");
+            Log.e(TAG, "activityInfoButton member variable is null!");
         }
 
-        settingsButton.setOnClickListener(v -> {
-            Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
-            settingsLauncher.launch(intent);
-        });
-
-        startStopFab.setOnClickListener(v -> { // Use the new variable name
-            if (isTrackingActive) {
-                stopTracking(); // Call method to stop
-            } else {
-                startTracking(); // Call method to start
-            }
-        });
-
-        if (startStopFab != null) {
-            startStopFab.setOnClickListener(v -> {
-                if (isTrackingActive) {
-                    stopTracking();
-                } else {
-                    startTracking();
-                }
+        // Settings Button listener (assuming settingsButton is a member variable now)
+        if (settingsButton != null) { // Use member variable
+            settingsButton.setOnClickListener(v -> {
+                Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
+                settingsLauncher.launch(intent);
             });
-        } // ... null check else ...
+        } else {
+            Log.e(TAG, "settingsButton member variable is null!");
+        }
 
-        gpsStatusButton.setOnClickListener(v -> {
-            Log.d("DebugGPSButton", "GPS Status Button Clicked!"); // <-- Add Log
-            showGPSStatus();
-        });
+        // --- REMOVE BLOCKS REFERENCING OLD startStopFab ---
+        // startStopFab.setOnClickListener(v -> { ... }); // DELETE THIS BLOCK
+        // if (startStopFab != null) { ... } // DELETE THIS BLOCK
 
-        if (recenterButton != null) { // Add null check for safety
+        // GPS Status listener
+        if (gpsStatusButton != null) { // Use member variable
+            gpsStatusButton.setOnClickListener(v -> {
+                Log.d("DebugGPSButton", "GPS Status Button Clicked!");
+                showGPSStatus();
+            });
+        } else {
+            Log.e(TAG, "gpsStatusButton member variable is null!");
+        }
+
+        // Recenter Button listener (assuming recenterButton is a member variable now)
+        if (recenterButton != null) { // Use member variable
             recenterButton.setOnClickListener(v -> {
-                if (mapManager != null) { // Check if mapManager exists
-                    mapManager.recenterMap(); // Call the manager's method
+                if (mapManager != null) {
+                    mapManager.recenterMap();
                 } else {
                     Log.w(TAG, "Recenter button clicked, but mapManager is null.");
                 }
             });
         } else {
-            Log.e(TAG, "Recenter button not found in layout!");
+            Log.e(TAG, "recenterButton member variable is null!");
         }
 
-        if (trackingModeSwitch != null) {
-            trackingModeSwitch.setOnCheckedChangeListener(switchListener);
+        // Start Manual Record listener
+        if (startManualRecordButton != null) { // Use member variable
+            startManualRecordButton.setOnClickListener(v -> {
+                Log.i(TAG, "Start Manual Record button clicked.");
+                if (!isTrackingActive && !isManualTrackingActive) {
+                    startManualTracking();
+                } else {
+                    Toast.makeText(MainActivity.this, "Tracking is already active.", Toast.LENGTH_SHORT).show();
+                }
+            });
+        } else {
+            Log.e(TAG, "startManualRecordButton member variable is null!");
         }
 
-        if (transportModeIcon != null) {
+        // Manual Stop FAB listener (Corrected)
+        if (manualStopFab != null) { // Use member variable (and correct null check)
+            manualStopFab.setOnClickListener(v -> { // Use correct variable name
+                if (isManualTrackingActive) {
+                    Log.i(TAG, "Manual Stop FAB clicked.");
+                    stopManualTracking();
+                } else {
+                    Log.w(TAG, "Manual Stop FAB clicked but manual tracking not active?");
+                }
+            });
+        } else {
+            Log.e(TAG, "manualStopFab member variable is NULL when trying to set listener!");
+        }
+
+        // Transport Mode Icon listener
+        if (transportModeIcon != null) { // Use member variable
             transportModeIcon.setOnClickListener(view -> {
-                boolean isVisible = transportModeIcon.getVisibility() == View.VISIBLE;
-                boolean isClickable = transportModeIcon.isClickable();
-                Log.d("TIcon", "transportModeIcon onClick triggered! isTrackingActive = " + isTrackingActive + ", isVisible = " + isVisible + ", isClickable = " + isClickable);
                 if (isTrackingActive) {
                     showPopupMenu(view);
                 } else {
-                    // Log why it didn't show
                     Log.d("TIcon", "Popup menu not shown because isTrackingActive is false.");
                     Toast.makeText(this, "Start tracking to override mode", Toast.LENGTH_SHORT).show();
                 }
             });
         } else {
-            Log.w("TIcon", "transportModeIcon is null, cannot set listener.");
+            Log.w("TIcon", "transportModeIcon member variable is null!");
         }
 
-        if (btnToggleHeatmap != null) {
+        // Heatmap Toggle listener (assuming btnToggleHeatmap is member variable)
+        if (btnToggleHeatmap != null) { // Use member variable
             btnToggleHeatmap.setOnClickListener(v -> {
-                isHeatmapModeActive = !isHeatmapModeActive; // Toggle the flag in MainActivity
+                isHeatmapModeActive = !isHeatmapModeActive;
                 Log.i(TAG, "Toggle button clicked. Heatmap mode active: " + isHeatmapModeActive);
-
                 if (heatmapToggleManager != null) {
-                    // ---> CALL MANAGER'S METHOD <---
                     int journeyCount = (displayedJourneyDetailsList != null) ? displayedJourneyDetailsList.size() : 0;
                     heatmapToggleManager.setDisplayMode(isHeatmapModeActive, journeyCount);
-
-                    // ---> IF switching TO heatmap, hide panel/animation <---
                     if (isHeatmapModeActive) {
-                        hideJourneyDetailsPanel(); // Already calls resetHighlight
+                        hideJourneyDetailsPanel();
                         if (polylinePathAnimator != null) polylinePathAnimator.stopAnimation();
                     }
-
                 } else {
                     Log.e(TAG,"HeatmapToggleManager is null, cannot set display mode!");
                 }
-
-                // Update button appearance (optional)
-                btnToggleHeatmap.setBackgroundTintList(ContextCompat.getColorStateList(this,
-                        isHeatmapModeActive ? android.R.color.holo_red_dark : R.color.orange));
+                // Update button appearance (using theme colors ideally)
+                // btnToggleHeatmap.setBackgroundTintList(...) // Consider updating this later
             });
         } else {
-            Log.e(TAG, "btnToggleHeatmap not found!");
+            Log.e(TAG, "btnToggleHeatmap member variable is null!");
         }
 
-        if (setNorthButton != null) {
-            setNorthButton.setOnClickListener(v -> {
-                // Check if the MapLibre map object is ready
-                if (maplibreMap != null) {
-                    Log.d(TAG, "Set North button clicked. Resetting orientation.");
-
-                    // Get the current camera position
-                    org.maplibre.android.camera.CameraPosition currentPosition = maplibreMap.getCameraPosition();
-
-                    // Create a new camera position with the same target and zoom,
-                    // but reset bearing and tilt to 0.
-                    org.maplibre.android.camera.CameraPosition newPosition =
-                            new org.maplibre.android.camera.CameraPosition.Builder(currentPosition)
-                                    .bearing(0) // Reset bearing to North
-                                    .tilt(0)    // Reset tilt
-                                    .build();
-
-                    // Animate the camera to the new position
-                    maplibreMap.easeCamera(
-                            org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(newPosition),
-                            750 // Animation duration in milliseconds (optional)
-                    );
-
-                } else {
-                    Log.w(TAG, "Set North button clicked, but maplibreMap is null.");
-                }
-                // Button visibility is handled by onOrientationChanged callback
+        // View Journeys listener (assuming viewJourneysButton is member variable)
+        if (viewJourneysButton != null) { // Use member variable
+            viewJourneysButton.setOnClickListener(v -> {
+                Intent intent = new Intent(MainActivity.this, com.example.roots_d01.JourneyListActivity.class);
+                startActivity(intent);
             });
         } else {
-            Log.e(TAG, "setNorthButton not found!");
+            Log.e(TAG, "viewJourneysButton member variable is null!");
         }
-
-
-        viewJourneysButton = findViewById(R.id.viewJourneysButton); // Add this button to your layout
-        viewJourneysButton.setOnClickListener(v -> {
-            Intent intent = new Intent(MainActivity.this, com.example.roots_d01.JourneyListActivity.class);
-            startActivity(intent);
-        });
     }
 
 
+    private void startManualTracking() {
+        // Permission check (optional redundancy, good practice)
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Location permission needed", Toast.LENGTH_SHORT).show();
+            permissionHelper.checkAndRequestBasePermissions();
+            return;
+        }
 
+        Log.i(TAG, "Starting Manual Tracking...");
+        isManualTrackingActive = true;
+        isTrackingActive = true; // General tracking flag also true
+
+        // Update UI immediately
+        startManualRecordButton.setVisibility(View.GONE);
+        manualStopFab.setVisibility(View.VISIBLE);
+        // Set default override (e.g., Walking) and broadcast it
+        applyOverrideMode("Walking"); // Or prompt user? For now, default to walking.
+        if (uiUpdater != null) {
+            uiUpdater.updateStartStopButtonState(true, "Walking"); // Update icon state
+        }
+
+
+        // Start the service if it's not already running
+        // (It might be running in auto mode but not *recording* yet)
+        // Binding/Starting logic might need adjustment depending on how auto vs manual interact
+        startLocationService(); // Ensure service is running
+
+        // Initialize the visual polyline for the current track
+        initializeCurrentPolyline("Walking"); // Use the initial override mode
+        updateCurrentPolylineStyle("Walking");
+        updateHistoricalJourneyVisibility("Walking"); // Hide unrelated if needed
+
+        // Start blinking animator
+        if (currentPolylineAnimator != null ) {
+            Log.i(TAG, "Calling startBlinking() from startManualTracking()");
+            currentPolylineAnimator.startBlinking();
+        }
+
+        Toast.makeText(this, "Manual Tracking Started", Toast.LENGTH_SHORT).show();
+    }
+
+    private void stopManualTracking() {
+        Log.i(TAG, "Stopping Manual Tracking...");
+        isManualTrackingActive = false;
+        isTrackingActive = false; // Also set general tracking flag to false
+
+        clearOverrideMode(); // Clear any manual override mode
+
+        // Update UI immediately
+        manualStopFab.setVisibility(View.GONE);
+        startManualRecordButton.setVisibility(View.VISIBLE);
+        if (uiUpdater != null) {
+            uiUpdater.updateStartStopButtonState(false, null); // Set inactive icon state
+        }
+
+        // Stop the service - Check if this is desired.
+        // If you want Auto mode to potentially take over immediately, maybe DON'T stop the service here.
+        // Let's assume for now stopping manual tracking also stops the service until Auto restarts it.
+        Intent serviceIntent = new Intent(this, LocationTrackingService.class);
+        stopService(serviceIntent);
+        Log.d(TAG, "Attempted to stop LocationTrackingService after manual stop.");
+
+        // Stop blinking animator
+        if (currentPolylineAnimator != null) {
+            Log.d("RecordingIndicator", "Stopping blinking due to manual stop.");
+            currentPolylineAnimator.stopBlinking();
+        }
+        // Clear the current visual polyline
+        currentTrackLatLngs.clear();
+        updateCurrentPolylineSource();
+        updateHistoricalJourneyVisibility(null); // Show all historical again
+
+        Toast.makeText(this, "Manual Tracking Stopped", Toast.LENGTH_SHORT).show();
+    }
 
 
 
@@ -1196,13 +1278,13 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
     @Override
     protected void onSaveInstanceState(@NonNull Bundle outState) {
-        // Always call the superclass so it can save the view hierarchy state
         super.onSaveInstanceState(outState);
         if (mapView != null) mapView.onSaveInstanceState(outState);
         Log.d(TAG, "onSaveInstanceState: Saving state - isTrackingActive=" + isTrackingActive + ", overrideMode=" + overrideMode);
         // Save our custom state into the bundle
-        outState.putBoolean(STATE_IS_TRACKING, isTrackingActive);
+        outState.putBoolean(STATE_IS_MANUAL_TRACKING, isManualTrackingActive);
         outState.putString(STATE_OVERRIDE_MODE, overrideMode);
+        Log.d(TAG, "onSaveInstanceState: Saved manual tracking flag: " + isManualTrackingActive);
     }
 
     @Override
@@ -2242,17 +2324,25 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
 
 
-    // Helper to load prefs and update UI initially and onResume
     private void loadAndApplyInitialUiState() {
-        SharedPreferences prefs = getSharedPreferences("Settings", MODE_PRIVATE);
-        // *** Use the variable declared above ***
-        String trackingMode = prefs.getString(KEY_TRACKING_MODE, MODE_AUTO); // Default to Auto
-        Log.d(TAG_SYNC, "loadAndApplyInitialUiState: Applying UI for Mode=" + trackingMode + ", Activity's isTrackingActive=" + this.isTrackingActive);
+        // SharedPreferences prefs = getSharedPreferences("Settings", MODE_PRIVATE); // No longer need mode pref here
+        // String trackingMode = prefs.getString(KEY_TRACKING_MODE, MODE_AUTO); // No longer need mode pref here
 
-        Log.d(TAG, "loadAndApplyInitialUiState: Tracking Mode loaded: " + trackingMode);
+        Log.d(TAG, "loadAndApplyInitialUiState: Applying UI based on isManualTrackingActive=" + isManualTrackingActive);
+
+        if (isManualTrackingActive) {
+            startManualRecordButton.setVisibility(View.GONE);
+            manualStopFab.setVisibility(View.VISIBLE);
+            // Optionally update label and icon state via uiUpdater if needed on initial load
+        } else {
+            startManualRecordButton.setVisibility(View.VISIBLE);
+            manualStopFab.setVisibility(View.GONE);
+        }
+
+        // Update general tracking UI elements if needed based on general isTrackingActive flag
         if (uiUpdater != null) {
-            // *** FIX: Use trackingMode and add isTrackingActive ***
-            uiUpdater.updateUiBasedOnTrackingMode(trackingMode, MainActivity.this.isTrackingActive);
+            uiUpdater.updateStartStopButtonState(isTrackingActive, overrideMode); // Reflect general state
+            // Initial status label might be set here or by receiver
         }
     }
 
@@ -2377,11 +2467,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             // *** Log the determined mode ***
             Log.d(TAG, "showPopupMenu: Determined mode from Prefs: " + currentMode + ", isManualMode = " + isManualMode);
             // Also log switch state for comparison (optional debug)
-            if (trackingModeSwitch != null) {
-                Log.d(TAG, "showPopupMenu: Current switch state isChecked = " + trackingModeSwitch.isChecked());
-            } else {
-                Log.w(TAG, "showPopupMenu: trackingModeSwitch is null when trying to log state.");
-            }
+
 
             // Inflate the menu resource
             popup.getMenuInflater().inflate(R.menu.transport_mode_menu, popup.getMenu());

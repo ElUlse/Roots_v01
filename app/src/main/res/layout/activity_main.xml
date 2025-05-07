@@ -17,35 +17,18 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <com.google.android.material.switchmaterial.SwitchMaterial
-        android:id="@+id/trackingModeSwitch"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:layout_marginEnd="16dp"
-        android:background="?attr/colorSurfaceContainerHigh"
-        android:padding="8dp"
-        android:text="Auto"
-        android:textColor="?attr/colorOnSurface"
-        android:minHeight="48dp"
-        android:contentDescription="Toggle Auto/Manual Tracking Mode"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
     <ImageButton
         android:id="@+id/setNorthButton"
         android:layout_width="48dp"
         android:layout_height="48dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="1dp"
+        android:layout_marginTop="16dp" android:layout_marginEnd="16dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="Reset North Orientation"
         android:padding="8dp"
         android:src="@drawable/ic_north"
         android:visibility="gone"
-        app:layout_constraintEnd_toEndOf="@id/trackingModeSwitch"
-        app:layout_constraintTop_toBottomOf="@id/trackingModeSwitch"
-        app:tint="?attr/colorOnSurface"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/gpsStatusButton" app:tint="?attr/colorOnSurface"
         tools:visibility="visible" />
 
     <ImageView
@@ -111,6 +94,15 @@
             app:iconTint="?attr/colorOnSecondaryContainer"
             android:contentDescription="View Saved Journeys" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/startManualRecordButton"
+            style="?attr/materialIconButtonFilledTonalStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            app:icon="@android:drawable/ic_menu_add"  app:iconTint="?attr/colorOnSecondaryContainer"
+            android:contentDescription="Start Manual Recording" />
+
         <View
             android:layout_width="0dp"
             android:layout_height="0dp"
@@ -133,9 +125,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="12dp"
-            app:icon="@android:drawable/ic_dialog_map"
-            app:iconTint="?attr/colorOnSecondaryContainer"
+            app:icon="@android:drawable/ic_dialog_map" app:iconTint="?attr/colorOnSecondaryContainer"
             android:contentDescription="Toggle Heatmap/Polylines" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/settingsButton"
             style="?attr/materialIconButtonFilledTonalStyle"
@@ -189,188 +181,180 @@
 
     </com.google.android.material.chip.ChipGroup>
 
-
     <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/startStopFab"
-        android:layout_width="wrap_content"
+        android:id="@+id/manualStopFab" android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginBottom="8dp"
         android:clickable="true"
-        android:contentDescription="Start or Stop Tracking"
+        android:contentDescription="Stop Manual Tracking"
         android:focusable="true"
-        android:visibility="gone"
-        app:backgroundTint="?attr/colorPrimaryContainer" app:tint="?attr/colorOnPrimaryContainer"
+        android:visibility="gone" app:backgroundTint="?attr/colorErrorContainer"
+        app:tint="?attr/colorOnErrorContainer"
         app:elevation="6dp"
         app:fabSize="normal"
         app:layout_constraintBottom_toTopOf="@id/bottomControlsLayout"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:pressedTranslationZ="12dp"
-        app:srcCompat="@drawable/ic_play"
-        tools:visibility="visible" />
+        app:srcCompat="@drawable/ic_stop" /> <com.google.android.material.card.MaterialCardView
+    android:id="@+id/journeyDetailsPanel"
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:visibility="gone"
+    app:cardElevation="8dp"
+    app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
+    app:strokeColor="?attr/colorOutlineVariant"
+    app:strokeWidth="1dp"
+    app:layout_constraintBottom_toBottomOf="parent"
+    app:layout_constraintEnd_toEndOf="parent"
+    app:layout_constraintStart_toStartOf="parent"
+    android:clickable="true"
+    android:focusable="true"
+    tools:visibility="visible">
 
-
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/journeyDetailsPanel"
-        android:layout_width="0dp"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:visibility="gone"
-        app:cardElevation="8dp"
-        app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-        app:strokeColor="?attr/colorOutlineVariant"
-        app:strokeWidth="1dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        android:clickable="true"
-        android:focusable="true"
-        tools:visibility="visible">
+        android:orientation="vertical"
+        android:padding="16dp">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tv_bottom_journey_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textAppearance="?attr/textAppearanceTitleLarge"
+                android:textColor="?attr/colorOnSurface"
+                tools:text="Morning Walk" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnEditJourneyName"
+                style="?attr/materialIconButtonFilledTonalStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:contentDescription="Edit Journey Name"
+                app:icon="@android:drawable/ic_menu_edit"
+                app:iconTint="?attr/colorOnSecondaryContainer" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnCloseDetailsPanel"
+                style="?attr/materialIconButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:contentDescription="Close Details"
+                app:icon="@android:drawable/ic_menu_close_clear_cancel"
+                app:iconTint="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tv_bottom_journey_mode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="4dp"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
+            android:textColor="?attr/colorOnSurface"
+            tools:text="Mode: Walking" />
+
+        <TextView
+            android:id="@+id/tv_bottom_journey_start_time"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="2dp"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            tools:text="Start: 10:00:00 (10 Apr)" />
+
+        <TextView
+            android:id="@+id/tv_bottom_journey_end_time"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="2dp"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            tools:text="End: 10:30:00 (10 Apr)" />
+
+        <TextView
+            android:id="@+id/tv_bottom_journey_duration"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="2dp"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            tools:text="Duration: 30 min 0 sec" />
+
+        <TextView
+            android:id="@+id/tv_bottom_journey_distance"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="4dp"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            tools:text="Distance: 1.50 km" />
+
+        <TextView
+            android:id="@+id/tv_bottom_journey_accuracy"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="4dp"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            tools:text="Avg Accuracy: 10.5 m" />
+
+        <TextView
+            android:id="@+id/tv_bottom_journey_mode_breakdown"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            tools:text="Modes: Walking (80%), Still (20%)" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/tv_bottom_journey_name"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:textAppearance="?attr/textAppearanceTitleLarge"
-                    android:textColor="?attr/colorOnSurface"
-                    tools:text="Morning Walk" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnEditJourneyName"
-                    style="?attr/materialIconButtonFilledTonalStyle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:contentDescription="Edit Journey Name"
-                    app:icon="@android:drawable/ic_menu_edit"
-                    app:iconTint="?attr/colorOnSecondaryContainer" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnCloseDetailsPanel"
-                    style="?attr/materialIconButtonStyle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:contentDescription="Close Details"
-                    app:icon="@android:drawable/ic_menu_close_clear_cancel"
-                    app:iconTint="?attr/colorOnSurfaceVariant" />
-
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/tv_bottom_journey_mode"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:layout_marginBottom="4dp"
-                android:textAppearance="?attr/textAppearanceBodyLarge"
-                android:textColor="?attr/colorOnSurface"
-                tools:text="Mode: Walking" />
-
-            <TextView
-                android:id="@+id/tv_bottom_journey_start_time"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="2dp"
-                android:textAppearance="?attr/textAppearanceBodyMedium"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                tools:text="Start: 10:00:00 (10 Apr)" />
-
-            <TextView
-                android:id="@+id/tv_bottom_journey_end_time"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="2dp"
-                android:textAppearance="?attr/textAppearanceBodyMedium"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                tools:text="End: 10:30:00 (10 Apr)" />
-
-            <TextView
-                android:id="@+id/tv_bottom_journey_duration"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="2dp"
-                android:textAppearance="?attr/textAppearanceBodyMedium"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                tools:text="Duration: 30 min 0 sec" />
-
-            <TextView
-                android:id="@+id/tv_bottom_journey_distance"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="4dp"
-                android:textAppearance="?attr/textAppearanceBodyMedium"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                tools:text="Distance: 1.50 km" />
-
-            <TextView
-                android:id="@+id/tv_bottom_journey_accuracy"
+            <com.google.android.material.button.MaterialButton
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:id="@+id/btnPrevJourney"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="4dp"
-                android:textAppearance="?attr/textAppearanceBodySmall"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                tools:text="Avg Accuracy: 10.5 m" />
+                android:text="Previous" />
 
-            <TextView
-                android:id="@+id/tv_bottom_journey_mode_breakdown"
+            <com.google.android.material.button.MaterialButton
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:id="@+id/btnNextJourney"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:textAppearance="?attr/textAppearanceBodySmall"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                tools:text="Modes: Walking (80%), Still (20%)" />
+                android:layout_marginStart="8dp"
+                android:text="Next" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <com.google.android.material.button.MaterialButton
+                style="?attr/materialButtonOutlinedStyle"
+                android:id="@+id/btnDeleteJourney"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <com.google.android.material.button.MaterialButton
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:id="@+id/btnPrevJourney"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Previous" />
-
-                <com.google.android.material.button.MaterialButton
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:id="@+id/btnNextJourney"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:text="Next" />
-
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="0dp"
-                    android:layout_weight="1" />
-
-                <com.google.android.material.button.MaterialButton
-                    style="?attr/materialButtonOutlinedStyle"
-                    android:id="@+id/btnDeleteJourney"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Delete"
-                    app:strokeColor="?attr/colorError"
-                    android:textColor="?attr/colorError" />
-
-            </LinearLayout>
-
+                android:text="Delete"
+                app:strokeColor="?attr/colorError"
+                android:textColor="?attr/colorError" />
         </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

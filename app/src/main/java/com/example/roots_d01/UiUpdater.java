@@ -27,7 +27,6 @@ public class UiUpdater {
     private final Button gpsStatusButton;
     private final ImageView transportModeIcon;
     private final FloatingActionButton startStopFab;
-    private final SwitchMaterial trackingModeSwitch;
 
     private Animation pulseAnimation = null;
 
@@ -38,14 +37,13 @@ public class UiUpdater {
 
 
     // Constructor accepting all required UI elements
+    // Constructor accepting all required UI elements
     public UiUpdater(Context context, Button gpsStatusButton, ImageView transportModeIcon,
-           FloatingActionButton startStopFab,
-                     SwitchMaterial trackingModeSwitch) {
-        this.context = context.getApplicationContext(); // Use application context
+                     FloatingActionButton startStopFab) {
+        this.context = context.getApplicationContext();
         this.gpsStatusButton = gpsStatusButton;
         this.transportModeIcon = transportModeIcon;
         this.startStopFab = startStopFab;
-        this.trackingModeSwitch = trackingModeSwitch;
     }
 
     // --- Method: updateGPSIndicator (Moved from MainActivity) ---
@@ -228,18 +226,6 @@ public class UiUpdater {
     public void updateUiBasedOnTrackingMode(String mode, boolean isTrackingActive) {
         boolean isManual = MODE_MANUAL.equals(mode);
         Log.d(TAG, "UiUpdater.updateUiBasedOnTrackingMode called. Mode: " + mode + ", isTrackingActive = " + isTrackingActive);
-
-        // Update Switch State and Text
-        if (this.trackingModeSwitch != null) {
-            this.trackingModeSwitch.setChecked(isManual);
-            this.trackingModeSwitch.setText(isManual ? "Manual" : "Auto");
-        } else { Log.w(TAG, "updateUiBasedOnTrackingMode: trackingModeSwitch is null"); }
-
-        // Update FAB Visibility
-        if (this.startStopFab != null) {
-            this.startStopFab.setVisibility(isManual ? View.VISIBLE : View.GONE);
-            Log.d(TAG, "updateUiBasedOnTrackingMode: FAB visibility set to: " + (isManual ? "VISIBLE" : "GONE"));
-        } else { Log.w(TAG, "updateUiBasedOnTrackingMode: startStopFab is null"); }
 
         // Set UI State based on whether tracking is Active or Inactive
         if (!isTrackingActive) {
