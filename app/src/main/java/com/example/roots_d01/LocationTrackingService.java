@@ -51,6 +51,8 @@ public class LocationTrackingService extends Service {
 
     private static final String TAG = "LocationTrackingService";
     private static final String TAG_SYNC = "StateSyncDebug";
+    private static final String TAG_LATCH = "ActivityLatchDebug"; // New Tag for latching logic
+
     private static final String CHANNEL_ID = "LocationTrackingServiceChannel";
     private static final int NOTIFICATION_ID = 12345; // Unique ID
 
@@ -131,7 +133,18 @@ public class LocationTrackingService extends Service {
     private String effectiveModeForPolyline = "Unknown"; // <<< ADD THIS LINE
     private String lastConfirmedMode = "Unknown"; // Correct initialization
 
-
+    // --- Latching and Timeout State (NEW) ---
+    private String latchedMode = null; // Stores "In Vehicle" or "Bicycling" when latched
+    private long stillUnknownStartTime = 0L; // Timestamp when Still/Unknown detected after latch
+    private Handler stillUnknownTimeoutHandler;
+    private Runnable stillUnknownTimeoutRunnable;
+    // Timeout duration (e.g., 2 minutes - ADJUST AS NEEDED)
+    private static final long STILL_UNKNOWN_TIMEOUT_MS = 2 * 60 * 1000;
+    private Location lastLocationForSpeed = null; // Store last location for speed check
+    // Speed thresholds in meters/second (ADJUST AS NEEDED)
+    private static final float MAX_SPEED_FOR_STILL_RESET_MS = 1.5f; // ~5.4 km/h
+    private static final float MIN_SPEED_FOR_VEHICLE_RESET_MS = 2.0f; // ~7.2 km/h
+    private static final float MAX_SPEED_FOR_BICYCLE_RESET_MS = 10.0f; // ~36 km/h
 
     final int STILL_CONFIDENCE_THRESHOLD = 85;
     @Override
@@ -146,6 +159,7 @@ public class LocationTrackingService extends Service {
         gson = new Gson(); // Initialize Gson
         backgroundExecutor = Executors.newSingleThreadExecutor(); // Initialize Executor
         mainThreadHandler = new Handler(Looper.getMainLooper()); // Initialize Handler
+        stillUnknownTimeoutHandler = new Handler(Looper.getMainLooper());
 
         // Initialize Activity Recognition Client here too
         initializeActivityRecognition();
@@ -155,6 +169,7 @@ public class LocationTrackingService extends Service {
         polylineManager = new PolylineManager(getApplicationContext(), backgroundExecutor, gson, mainThreadHandler); // Pass the handler
         setupOverrideReceiver();
         setupActivityUpdateReceiver();
+        createLocationCallback(); // Ensure callback is created AFTER handlers
     }
 
     // ... onStartCommand ...
@@ -343,171 +358,198 @@ public class LocationTrackingService extends Service {
         }
     }
 
-    // Inside LocationTrackingService.java
-
     private void handleActivityChange(int activityType, int confidence) {
-        Log.d("ActivityDebounce", "--- handleActivityChange START ---");
-        Log.d("ActivityDebounce", "Raw Detection: Type=" + activityTypeToString(activityType) + ", Conf=" + confidence);
-
-        // --- Step 1: Determine the *instantaneously* detected mode string ---
-        String detectedModeNow = "Unknown"; // Default
-        // (Use your existing confidence thresholds here)
-        if (activityType == DetectedActivity.WALKING && confidence > WALKING_ACTIVITY_CONFIDENCE_THRESHOLD) {
-            detectedModeNow = "Walking";
-        } else if (activityType == DetectedActivity.ON_BICYCLE && confidence > BICYCLING_ACTIVITY_CONFIDENCE_THRESHOLD) {
-            detectedModeNow = "Bicycling";
-        } else if (activityType == DetectedActivity.IN_VEHICLE && confidence > IN_VEHICLE_ACTIVITY_CONFIDENCE_THRESHOLD) {
-            detectedModeNow = "In Vehicle";
-        } else if (activityType == DetectedActivity.STILL && confidence > STILL_CONFIDENCE_THRESHOLD) {
-            detectedModeNow = "Still";
-        }
-        // Otherwise, it remains "Unknown"
-
-        Log.d("ActivityDebounce", "Instantaneous Mode Determined: " + detectedModeNow);
-
-        // --- Step 2: Broadcast Instantaneous Mode for UI Feedback ---
-        // (Send this regardless of debouncing for immediate user feedback)
-        Intent activityIntent = new Intent(ACTION_ACTIVITY_DETECTED);
-        activityIntent.putExtra(EXTRA_DETECTED_ACTIVITY_STRING, detectedModeNow);
-        LocalBroadcastManager.getInstance(this).sendBroadcast(activityIntent);
-        Log.d("ActivityDebounce", "Broadcasted ACTION_ACTIVITY_DETECTED: " + detectedModeNow);
-
-
-        // --- Step 3: Apply Debouncing/Filtering for Auto-Start/Stop and Segment Mode ---
+        Log.d(TAG_LATCH, "--- handleActivityChange START ---");
+        Log.d(TAG_LATCH, "Raw Detection: Type=" + activityTypeToString(activityType) + ", Conf=" + confidence + ", Current Latch: " + latchedMode);
         long currentTime = System.currentTimeMillis();
-        String effectiveModeForManager = lastConfirmedMode; // Start with the last confirmed mode
 
-        // Check if the new detection requires starting a potential mode change timer
-        boolean isMovingNow = detectedModeNow.equals("Walking") || detectedModeNow.equals("Bicycling") ||
-                detectedModeNow.equals("In Vehicle");
-        boolean isStillOrUnknownNow = detectedModeNow.equals("Still") || detectedModeNow.equals("Unknown");
+        // Determine instantaneous mode (same as before)
+        String detectedModeNow = "Unknown";
+        if (activityType == DetectedActivity.WALKING && confidence >= WALKING_ACTIVITY_CONFIDENCE_THRESHOLD) detectedModeNow = "Walking";
+        else if (activityType == DetectedActivity.ON_BICYCLE && confidence >= BICYCLING_ACTIVITY_CONFIDENCE_THRESHOLD) detectedModeNow = "Bicycling";
+        else if (activityType == DetectedActivity.IN_VEHICLE && confidence >= IN_VEHICLE_ACTIVITY_CONFIDENCE_THRESHOLD) detectedModeNow = "In Vehicle";
+        else if (activityType == DetectedActivity.STILL && confidence >= STILL_CONFIDENCE_THRESHOLD) detectedModeNow = "Still";
 
-        if (isMovingNow) {
-            // --- Handle Potential Movement Start/Change ---
-            if (detectedModeNow.equals(potentialNextMode)) {
-                // Continue detecting the same potential mode
-                long durationDetected = currentTime - potentialModeStartTime;
-                Log.d("ActivityDebounce", "Continuing potential mode '" + potentialNextMode + "' for " + durationDetected + "ms");
+        Log.d(TAG_LATCH, "Instantaneous Mode: " + detectedModeNow);
+        broadcastInstantaneousActivity(detectedModeNow); // Broadcast for UI
 
-                // Check if duration is long enough to confirm the mode change for segments
-                if (durationDetected >= MIN_DURATION_FOR_MODE_CHANGE_MS) {
-                    Log.i("ActivityDebounce", "CONFIRMING Mode Change to: " + potentialNextMode);
-                    lastConfirmedMode = potentialNextMode;
-                    lastConfirmedModeTime = currentTime;
-                    effectiveModeForManager = lastConfirmedMode;
-                    potentialNextMode = null; // Reset potential mode tracker
-                    potentialModeStartTime = 0;
+        // --- Latching Logic ---
+
+        // 1. IMMEDIATE WALKING OVERRIDE
+        if (detectedModeNow.equals("Walking")) {
+            Log.i(TAG_LATCH, "WALKING detected. Overriding latch/timeout.");
+            clearLatchAndTimeout(); // Clear latch state and cancel timer
+            effectiveModeForPolyline = "Walking";
+            lastConfirmedMode = "Walking";
+            handleAutoStartStop(detectedModeNow, currentTime); // Update auto-start/stop based on Walking
+            Log.d(TAG_LATCH, "--- handleActivityChange END (Walking Override) ---");
+            return; // Processed Walking, exit
+        }
+
+        // 2. CHECK IF CURRENTLY LATCHED
+        if (latchedMode != null) {
+            if (detectedModeNow.equals(latchedMode)) {
+                // Still detecting the latched mode - confirm and reset timeout
+                Log.d(TAG_LATCH, "Confirmed latched mode: " + latchedMode + ". Resetting potential timeout.");
+                clearStillUnknownTimeout(); // Cancel timer, reset start time
+                effectiveModeForPolyline = latchedMode; // Continue using latched mode
+                lastConfirmedMode = latchedMode;
+                handleAutoStartStop(detectedModeNow, currentTime); // Cancel any pending stop
+            } else if (detectedModeNow.equals("Still") || detectedModeNow.equals("Unknown")) {
+                // Detected Still/Unknown while latched
+                Log.d(TAG_LATCH, "Detected " + detectedModeNow + " while latched on " + latchedMode);
+                effectiveModeForPolyline = latchedMode; // KEEP using latched mode during timeout
+                lastConfirmedMode = latchedMode; // Keep confirmed mode as latched for now
+                if (stillUnknownStartTime == 0L) {
+                    // First time Still/Unknown is detected since latch confirmation
+                    Log.i(TAG_LATCH, "Starting Still/Unknown timeout (" + STILL_UNKNOWN_TIMEOUT_MS + "ms)...");
+                    stillUnknownStartTime = currentTime;
+                    initializeAndStartLatchTimeout(); // Start the timeout runnable
                 } else {
-                    // Not long enough to confirm for segments yet, keep last confirmed mode for manager
-                    effectiveModeForManager = lastConfirmedMode;
-                    Log.d("ActivityDebounce", "Mode '" + potentialNextMode + "' detected but duration < " + MIN_DURATION_FOR_MODE_CHANGE_MS + "ms. Using last confirmed '" + lastConfirmedMode + "' for manager.");
+                    Log.d(TAG_LATCH, "Still/Unknown timeout already running.");
                 }
-
-                // Check if duration is long enough for AUTO-START (independent of segment mode confirmation)
-                if (!isAutoTrackingCurrentlyActive && durationDetected >= MIN_DURATION_FOR_AUTO_START_MS) {
-                    Log.i("ActivityDebounce", "CONFIRMING Auto-Start Trigger (Mode: " + potentialNextMode + ")");
-                    // Perform auto-start if in auto mode
-                    SharedPreferences prefs = getSharedPreferences("Settings", MODE_PRIVATE);
-                    String trackingMode = prefs.getString(MainActivity.KEY_TRACKING_MODE, MainActivity.MODE_AUTO);
-                    if (MainActivity.MODE_AUTO.equals(trackingMode)) {
-                        startAutoTracking(); // Call the start method
-                    }
-                }
-
+                // Defer auto-stop decision
             } else {
-                // New potential mode detected, start the timer
-                Log.d("ActivityDebounce", "NEW Potential Mode detected: " + detectedModeNow + ". Starting timer.");
-                potentialNextMode = detectedModeNow;
-                potentialModeStartTime = currentTime;
-                // Keep using the last confirmed mode until the new one is confirmed
-                effectiveModeForManager = lastConfirmedMode;
+                // Detected a DIFFERENT *moving* mode (Bicycle <-> Vehicle)
+                Log.i(TAG_LATCH, "Different MOVING mode (" + detectedModeNow + ") detected while latched on " + latchedMode + ". Breaking latch.");
+                clearLatchAndTimeout(); // Break the latch, cancel timer
+                // Fall through to the "Not Latched" logic below to handle the new mode
+                handleNotLatched(detectedModeNow, currentTime);
             }
-            // If moving, cancel any pending auto-stop
-            if (stopRunnable != null) {
-                Log.d("ActivityDebounce", "Movement detected (" + detectedModeNow + "), cancelling pending auto-stop.");
-                stopDelayHandler.removeCallbacks(stopRunnable);
-                stopRunnable = null;
-            }
-
-        } else if (isStillOrUnknownNow) {
-            // --- Handle Still or Unknown ---
-            Log.d("ActivityDebounce", "Detected Still/Unknown. Resetting potential mode timer.");
-            potentialNextMode = null; // Reset potential mode if we stop moving
-            potentialModeStartTime = 0;
-
-            long timeSinceLastValid = currentTime - lastConfirmedModeTime;
-            Log.d("ActivityDebounce", "Time since last confirmed mode '" + lastConfirmedMode + "': " + timeSinceLastValid + "ms");
-
-            // Keep using the last valid mode for a short duration?
-            if (lastConfirmedModeTime > 0 && timeSinceLastValid < MAX_DURATION_TO_KEEP_LAST_MODE_MS) {
-                effectiveModeForManager = lastConfirmedMode; // Override Still/Unknown for manager
-            } else {
-                // Timeout expired or no previous valid mode, use the actual Still/Unknown
-                effectiveModeForManager = detectedModeNow;
-                lastConfirmedMode = effectiveModeForManager; // Update confirmed mode to Still/Unknown
-                lastConfirmedModeTime = currentTime;
-                Log.d("ActivityDebounce", "Using ACTUAL mode '" + effectiveModeForManager + "' for manager (Timeout expired or no previous valid)");
-            }
-
-            // Handle Auto-Stop logic (only if detected mode is actually STILL)
-            if (detectedModeNow.equals("Still")) {
-                SharedPreferences prefs = getSharedPreferences("Settings", MODE_PRIVATE);
-                String trackingMode = prefs.getString(MainActivity.KEY_TRACKING_MODE, MainActivity.MODE_AUTO);
-                if (MainActivity.MODE_AUTO.equals(trackingMode) && isAutoTrackingCurrentlyActive) {
-                    if (stopRunnable == null) {
-                        Log.w("ActivityDebounce", "STILL detected, scheduling auto-stop timer (" + AUTO_STOP_DELAY_MS + "ms).");
-                        stopRunnable = this::stopAutoTracking;
-                        stopDelayHandler.postDelayed(stopRunnable, AUTO_STOP_DELAY_MS);
-                    } else {
-                        Log.d("ActivityDebounce", "STILL detected, auto-stop timer already scheduled.");
-                    }
-                }
-            } else {
-                // If Unknown, ensure any pending stop is cancelled
-                if (stopRunnable != null) {
-                    Log.d("ActivityDebounce", "UNKNOWN detected, cancelling pending auto-stop.");
-                    stopDelayHandler.removeCallbacks(stopRunnable);
-                    stopRunnable = null;
-                }
-            }
-
         } else {
-            // Should not happen if logic above is complete, but handles unexpected cases
-            Log.w("ActivityDebounce", "Unhandled activity type in debouncing logic: " + activityTypeToString(activityType));
-            potentialNextMode = null;
-            potentialModeStartTime = 0;
-            effectiveModeForManager = "Unknown"; // Fallback
-            lastConfirmedMode = effectiveModeForManager;
-            lastConfirmedModeTime = currentTime;
-            // Cancel pending stop if any
-            if (stopRunnable != null) {
-                stopDelayHandler.removeCallbacks(stopRunnable);
-                stopRunnable = null;
-            }
+            // 3. NOT CURRENTLY LATCHED
+            handleNotLatched(detectedModeNow, currentTime);
         }
 
-        // --- Step 4: Update PolylineManager with the *effective* mode ---
-        // This part now happens inside onLocationResult using the effectiveModeForManager
-        // We store it in a member variable to be accessed by onLocationResult
-        // (Alternatively, pass it directly if handleActivityChange is called FROM onLocationResult)
-        // For now, let's assume onLocationResult will access 'lastConfirmedMode' or calculate the effective mode itself based on timestamps.
-        // Let's simplify: we'll determine the mode to *pass* to polylineManager here.
-
-        String modeForPolylineManager;
-        if(isStillOrUnknownNow && lastConfirmedModeTime > 0 && (currentTime - lastConfirmedModeTime < MAX_DURATION_TO_KEEP_LAST_MODE_MS)) {
-            modeForPolylineManager = lastConfirmedMode; // Use held mode
-        } else {
-            modeForPolylineManager = lastConfirmedMode; // Use the currently confirmed mode (which might be Still/Unknown now)
-        }
-
-        Log.d("ActivityDebounce", "Final Effective Mode for PolylineManager (this cycle): " + modeForPolylineManager);
-
-        // Store this decision for onLocationResult to use (add a new member variable if needed)
-        // private String effectiveModeForPolyline = "Unknown"; // Add this member variable
-        this.effectiveModeForPolyline = modeForPolylineManager; // Update it here
-
-        Log.d("ActivityDebounce", "--- handleActivityChange END ---");
+        Log.d(TAG_LATCH, "Final Effective Mode for Polyline: " + effectiveModeForPolyline);
+        Log.d(TAG_LATCH, "--- handleActivityChange END ---");
     }
+
+    /** Handles state updates when not currently latched. */
+    private void handleNotLatched(String detectedModeNow, long currentTime) {
+        if (detectedModeNow.equals("In Vehicle") || detectedModeNow.equals("Bicycling")) {
+            // Start latching
+            Log.i(TAG_LATCH, "Initiating LATCH for mode: " + detectedModeNow);
+            latchedMode = detectedModeNow;
+            effectiveModeForPolyline = latchedMode;
+            lastConfirmedMode = latchedMode;
+            clearStillUnknownTimeout(); // Ensure no old timeout is running
+        } else if (detectedModeNow.equals("Still") || detectedModeNow.equals("Unknown")) {
+            // Handle Still/Unknown when not latched
+            Log.d(TAG_LATCH, "Detected " + detectedModeNow + " (not latched).");
+            effectiveModeForPolyline = detectedModeNow;
+            lastConfirmedMode = detectedModeNow;
+            clearStillUnknownTimeout();
+        } else {
+            // Other low confidence or unhandled modes
+            Log.d(TAG_LATCH, "Detected other/low confidence mode: " + detectedModeNow + " (not latched). Using Unknown.");
+            effectiveModeForPolyline = "Unknown"; // Default for other cases
+            lastConfirmedMode = "Unknown";
+            clearStillUnknownTimeout();
+        }
+        // Update auto-start/stop based on the detected mode
+        handleAutoStartStop(detectedModeNow, currentTime);
+    }
+
+    /** Helper to clear latch state and cancel the timeout timer. */
+    private void clearLatchAndTimeout() {
+        Log.d(TAG_LATCH, "Clearing latch (was " + latchedMode + ") and cancelling timeout.");
+        latchedMode = null;
+        if (stillUnknownTimeoutHandler != null && stillUnknownTimeoutRunnable != null) { // Check handler/runnable null
+            stillUnknownTimeoutHandler.removeCallbacks(stillUnknownTimeoutRunnable);
+        }
+        stillUnknownStartTime = 0L;
+        lastLocationForSpeed = null; // Also clear location used for speed check
+    }
+
+    /** Helper to cancel the timeout timer and reset its start time. */
+    private void clearStillUnknownTimeout() {
+        if (stillUnknownTimeoutHandler != null && stillUnknownTimeoutRunnable != null) { // Check handler/runnable null
+            stillUnknownTimeoutHandler.removeCallbacks(stillUnknownTimeoutRunnable);
+        }
+        stillUnknownStartTime = 0L;
+        // Don't clear latchedMode here
+    }
+
+    /** Initializes and starts the runnable for the latch timeout */
+    private void initializeAndStartLatchTimeout() {
+        // Create the Runnable if it doesn't exist
+        if (stillUnknownTimeoutRunnable == null) {
+            stillUnknownTimeoutRunnable = () -> {
+                Log.i(TAG_LATCH, "Still/Unknown TIMEOUT EXPIRED.");
+                // Check if we were still latched when the timer fired
+                if (latchedMode != null && stillUnknownStartTime > 0) {
+                    Log.i(TAG_LATCH, "Timeout expired while latched on " + latchedMode + ". Switching mode to Still.");
+                    String modeBeforeTimeout = latchedMode; // Store for potential auto-stop check
+                    clearLatchAndTimeout(); // Clear latch state
+                    effectiveModeForPolyline = "Still"; // Set effective mode
+                    lastConfirmedMode = "Still";
+                    // Now that latch is cleared, trigger auto-stop logic if needed
+                    handleAutoStartStop("Still", System.currentTimeMillis());
+                    // Optionally broadcast the change
+                    // broadcastInstantaneousActivity("Still");
+                } else {
+                    Log.w(TAG_LATCH, "Timeout runnable executed, but latch was already cleared or start time reset.");
+                }
+            };
+        }
+        // Remove any previous posts and post the new one
+        stillUnknownTimeoutHandler.removeCallbacks(stillUnknownTimeoutRunnable);
+        stillUnknownTimeoutHandler.postDelayed(stillUnknownTimeoutRunnable, STILL_UNKNOWN_TIMEOUT_MS);
+    }
+
+    /** Manages auto-start and auto-stop timers based on detected activity. */
+    private void handleAutoStartStop(String detectedMode, long currentTime) {
+        boolean isMoving = detectedMode.equals("Walking") || detectedMode.equals("Bicycling") || detectedMode.equals("In Vehicle");
+        boolean isStill = detectedMode.equals("Still");
+
+        SharedPreferences prefs = getSharedPreferences("Settings", MODE_PRIVATE);
+        String trackingModePref = prefs.getString(MainActivity.KEY_TRACKING_MODE, MainActivity.MODE_AUTO);
+        boolean isAutoMode = MainActivity.MODE_AUTO.equals(trackingModePref);
+
+        if (isMoving) {
+            // Cancel any pending auto-stop
+            if (stopRunnable != null) {
+                Log.d("AutoTrack_Service", "Movement detected (" + detectedMode + "), cancelling pending auto-stop.");
+                stopDelayHandler.removeCallbacks(stopRunnable);
+                stopRunnable = null;
+            }
+            // Handle Auto-Start
+            if (isAutoMode && !isAutoTrackingCurrentlyActive) {
+                // You might re-introduce the MIN_DURATION_FOR_AUTO_START_MS check here if needed
+                Log.i("AutoTrack_Service", "Auto-Start Triggered by movement: " + detectedMode);
+                startAutoTracking();
+            }
+        } else if (isStill) {
+            // Handle Auto-Stop (Only if in Auto mode, tracking, AND NOT latched)
+            if (isAutoMode && isAutoTrackingCurrentlyActive && latchedMode == null) { // Check if NOT latched
+                if (stopRunnable == null) {
+                    Log.w("AutoTrack_Service", "STILL detected (and not latched), scheduling auto-stop timer (" + AUTO_STOP_DELAY_MS + "ms).");
+                    stopRunnable = this::stopAutoTracking; // Ensure stopAutoTracking method exists
+                    stopDelayHandler.postDelayed(stopRunnable, AUTO_STOP_DELAY_MS);
+                } else {
+                    Log.d("AutoTrack_Service", "STILL detected (and not latched), auto-stop timer already scheduled.");
+                }
+            } else if (latchedMode != null) {
+                Log.d(TAG_LATCH, "STILL detected, but currently latched. Auto-stop deferred.");
+            }
+        } else { // Unknown or other modes
+            // Cancel pending auto-stop
+            if (stopRunnable != null) {
+                Log.d("AutoTrack_Service", "UNKNOWN detected, cancelling pending auto-stop.");
+                stopDelayHandler.removeCallbacks(stopRunnable);
+                stopRunnable = null;
+            }
+        }
+    }
+
+    /** Broadcasts the instantaneously detected mode for UI feedback. */
+    private void broadcastInstantaneousActivity(String mode) {
+        Intent activityIntent = new Intent(ACTION_ACTIVITY_DETECTED); // Ensure ACTION_ACTIVITY_DETECTED is defined
+        activityIntent.putExtra(EXTRA_DETECTED_ACTIVITY_STRING, mode); // Ensure EXTRA_DETECTED_ACTIVITY_STRING is defined
+        LocalBroadcastManager.getInstance(this).sendBroadcast(activityIntent);
+    }
+
 
     private void createLocationCallback() {
         locationCallback = new LocationCallback() {
@@ -517,6 +559,7 @@ public class LocationTrackingService extends Service {
                 Location location = locationResult.getLastLocation(); // Get the most recent location
 
                 if (location != null) {
+                    handleSpeedCheckForLatchTimeout(location);
                     float rawAccuracy = location.hasAccuracy() ? location.getAccuracy() : -1.0f;
                     Log.d("AccuracyDebug", "Service onLocationResult: Received Location with Accuracy = " + rawAccuracy);
                     Log.w("AutoTrack_Service", "SERVICE onLocationResult() received location.");
@@ -538,7 +581,7 @@ public class LocationTrackingService extends Service {
                         Log.d(TAG, "onLocationResult: Using OVERRIDE Mode for PolylineManager: " + modeForManager);
                     } else {
                         // Use the debounced/filtered mode calculated and stored by handleActivityChange
-                        modeForManager = LocationTrackingService.this.effectiveModeForPolyline; // <<< CORRECTED: Directly use the member variable
+                        modeForManager = LocationTrackingService.this.effectiveModeForPolyline; // <-- Use this variable
                         Log.d(TAG, "onLocationResult: Using Filtered/Debounced Mode for PolylineManager: " + modeForManager);
                     }
                     // --- End Mode Determination ---
@@ -559,10 +602,8 @@ public class LocationTrackingService extends Service {
                     // --- Broadcast Update to MainActivity ---
                     Intent intent = new Intent(ACTION_LOCATION_BROADCAST);
                     intent.putExtra(EXTRA_LOCATION, location);
-                    // Broadcast the mode that was actually used by the manager
                     intent.putExtra(EXTRA_EFFECTIVE_MODE, modeForManager);
-                    // Use the declared isRecording variable
-                    intent.putExtra(EXTRA_IS_RECORDING_ACTIVE, isRecording); // <<< Now uses declared variable
+                    intent.putExtra(EXTRA_IS_RECORDING_ACTIVE, isRecording);
 
                     LatLng addedLatLng = polylineManager.getLastAddedPoint();
                     if (addedLatLng != null) {
@@ -580,6 +621,57 @@ public class LocationTrackingService extends Service {
             } // End onLocationResult
         };
         Log.d(TAG, "LocationCallback created.");
+    }
+
+    /**
+     * Checks speed during the Still/Unknown timeout phase to potentially reset the timer.
+     */
+    private void handleSpeedCheckForLatchTimeout(Location currentLocation) {
+        // Only perform check if we are latched AND the timeout is potentially running
+        if (latchedMode != null && stillUnknownStartTime > 0) {
+            if (lastLocationForSpeed != null) {
+                long timeDeltaMs = currentLocation.getTime() - lastLocationForSpeed.getTime();
+                if (timeDeltaMs > 1000) { // Only calculate if time difference is reasonable (>1 sec)
+                    float distanceMeters = currentLocation.distanceTo(lastLocationForSpeed);
+                    float speedMs = distanceMeters / (timeDeltaMs / 1000.0f); // Speed in m/s
+
+                    Log.d(TAG_LATCH, "Speed Check: LatchedMode=" + latchedMode + ", Current Speed=" + String.format("%.1f", speedMs) + " m/s");
+
+                    boolean resetTimeout = false;
+                    String reason = "";
+
+                    // Check for inconsistency based on latched mode
+                    if (latchedMode.equals("In Vehicle") && speedMs < MIN_SPEED_FOR_VEHICLE_RESET_MS) {
+                        resetTimeout = true; // Too slow for vehicle
+                        reason = "Speed too low for Vehicle";
+                    } else if (latchedMode.equals("Bicycling") && speedMs > MAX_SPEED_FOR_BICYCLE_RESET_MS) {
+                        resetTimeout = true; // Too fast for bicycle
+                        reason = "Speed too high for Bicycling";
+                    }
+                    // Optional: Check if speed is *high* when expected to be Still/Unknown
+                    else if (speedMs > MAX_SPEED_FOR_STILL_RESET_MS) {
+                        // We detected Still/Unknown, but speed suggests movement. Reset timer.
+                        resetTimeout = true;
+                        reason = "Speed too high for Still/Unknown detection";
+                    }
+
+                    if (resetTimeout) {
+                        Log.i(TAG_LATCH, "Resetting Still/Unknown timeout timer due to inconsistent speed. Reason: " + reason);
+                        // Cancel existing and restart the timeout from NOW
+                        stillUnknownTimeoutHandler.removeCallbacks(stillUnknownTimeoutRunnable);
+                        stillUnknownStartTime = System.currentTimeMillis(); // Reset start time
+                        // Ensure the runnable is initialized before posting
+                        if (stillUnknownTimeoutRunnable == null) initializeAndStartLatchTimeout();
+                        else stillUnknownTimeoutHandler.postDelayed(stillUnknownTimeoutRunnable, STILL_UNKNOWN_TIMEOUT_MS);
+                    }
+                }
+            }
+            // Update last location for next calculation
+            lastLocationForSpeed = currentLocation;
+        } else {
+            // If not latched or timeout not running, clear the last location
+            lastLocationForSpeed = null;
+        }
     }
 
     private void stopTrackingUpdates() {
@@ -692,6 +784,13 @@ public class LocationTrackingService extends Service {
             Log.d(TAG, "Cancelled pending auto-stop on destroy.");
         }
 
+        if (stillUnknownTimeoutRunnable != null && stillUnknownTimeoutHandler != null) {
+            stillUnknownTimeoutHandler.removeCallbacks(stillUnknownTimeoutRunnable);
+            stillUnknownTimeoutRunnable = null; // Optional: clear runnable ref
+            Log.d(TAG_LATCH, "Cancelled latch timeout on destroy.");
+        }
+
+
 
         // Finalize last segment via manager BEFORE stopping executor
         if (polylineManager != null) {
@@ -701,7 +800,7 @@ public class LocationTrackingService extends Service {
             Log.w(TAG,"PolylineManager was null in onDestroy.");
         }
 
-        removeActivityUpdates(); // Stop activity recognition
+        if (activityRecognitionClient != null) removeActivityUpdates(); // Ensure removeActivityUpdates exists
 
         if (backgroundExecutor != null && !backgroundExecutor.isShutdown()) {
             backgroundExecutor.shutdown();
@@ -709,7 +808,6 @@ public class LocationTrackingService extends Service {
         }
 
         stopForeground(true); // Use true to remove notification immediately
-        Log.d(TAG, "Service stopped foreground.");
         super.onDestroy(); // Call super class's onDestroy
     }
 
@@ -718,6 +816,9 @@ public class LocationTrackingService extends Service {
         if (!isAutoTrackingCurrentlyActive) return;
         isAutoTrackingCurrentlyActive = false;
         stopRunnable = null;
+
+        clearLatchAndTimeout();
+
         stopTrackingUpdates(); // Stop FLP updates
         if (polylineManager != null) polylineManager.finalizeAndSaveCurrentSegment();
         notifyTrackingStateChange(false);

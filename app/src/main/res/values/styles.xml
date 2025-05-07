@@ -1,8 +1,2 @@
 <resources>
-    <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
-        <!-- Remove action bar -->
-        <item name="windowNoTitle">true</item>
-        <item name="windowActionBar">false</item>
-        <!-- You can set your app’s other styles here -->
-    </style>
 </resources>

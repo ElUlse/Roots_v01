@@ -23,11 +23,12 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:layout_marginEnd="16dp"
-        android:background="#80FFFFFF"
-        android:contentDescription="Toggle Auto/Manual Tracking Mode"
+        android:background="?attr/colorSurfaceContainerHigh"
         android:padding="8dp"
         android:text="Auto"
-        android:textColor="?android:attr/textColorPrimary"
+        android:textColor="?attr/colorOnSurface"
+        android:minHeight="48dp"
+        android:contentDescription="Toggle Auto/Manual Tracking Mode"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
@@ -36,6 +37,7 @@
         android:layout_width="48dp"
         android:layout_height="48dp"
         android:layout_marginTop="8dp"
+        android:layout_marginEnd="1dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="Reset North Orientation"
         android:padding="8dp"
@@ -43,9 +45,8 @@
         android:visibility="gone"
         app:layout_constraintEnd_toEndOf="@id/trackingModeSwitch"
         app:layout_constraintTop_toBottomOf="@id/trackingModeSwitch"
-        app:tint="@color/black"
+        app:tint="?attr/colorOnSurface"
         tools:visibility="visible" />
-
 
     <ImageView
         android:id="@+id/transportModeIcon"
@@ -70,32 +71,13 @@
         android:layout_height="50dp"
         android:layout_marginTop="16dp"
         android:background="@drawable/circle_button"
-        android:backgroundTint="@android:color/holo_red_light"
         android:contentDescription="GPS Status Indicator"
-        android:text="🛰"
-        android:textColor="@android:color/white"
+        android:text="🛰️"
+        android:textColor="?attr/colorOnError"
         android:textSize="20sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
-
-    <TextView
-        android:id="@+id/trackingStatusTextView"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:background="#A0FFFFFF"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp"
-        android:textColor="?android:attr/textColorPrimary"
-        android:textSize="12sp"
-        android:textStyle="bold"
-        android:visibility="gone"
-        app:layout_constraintStart_toStartOf="@id/transportModeIcon"
-        app:layout_constraintTop_toBottomOf="@id/transportModeIcon"
-        tools:text="Tracking: Walking"
-        tools:visibility="visible" />
-
 
     <LinearLayout
         android:id="@+id/bottomControlsLayout"
@@ -110,66 +92,58 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/recenterButton"
-            android:layout_width="50dp"
-            android:layout_height="50dp"
-            android:background="@drawable/circle_button"
-            android:backgroundTint="@color/black"
-            android:contentDescription="Recenter Map"
-            android:text="⤵"
-            android:textColor="@android:color/white"
-            android:textSize="18sp" />
+            style="?attr/materialIconButtonFilledTonalStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:icon="@android:drawable/ic_menu_mylocation"
+            app:iconTint="?attr/colorOnSecondaryContainer"
+            android:contentDescription="Recenter Map" />
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/viewJourneysButton"
-            android:layout_width="50dp"
-            android:layout_height="50dp"
+            style="?attr/materialIconButtonFilledTonalStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
-            android:background="@drawable/circle_button"
-            android:backgroundTint="@color/black"
-            android:contentDescription="View Saved Journeys"
-            android:text="List"
-            android:textColor="@android:color/white"
-            android:textSize="14sp" /> <View
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
+            app:icon="@android:drawable/ic_menu_agenda"
+            app:iconTint="?attr/colorOnSecondaryContainer"
+            android:contentDescription="View Saved Journeys" />
 
-        <ImageButton
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/activityInfoButton"
-            android:layout_width="50dp"
-            android:layout_height="50dp"
+            style="?attr/materialIconButtonFilledStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_marginEnd="12dp"
-            android:background="@drawable/circle_button"
-            android:backgroundTint="#FF9800"
-            android:contentDescription="Show Activity Confidences"
-            android:elevation="6dp"
-            android:src="@android:drawable/ic_dialog_info"
-            app:tint="@android:color/white" />
+            app:icon="@android:drawable/ic_dialog_info"
+            app:iconTint="?attr/colorOnPrimary"
+            app:backgroundTint="?attr/colorPrimary"
+            android:contentDescription="Show Activity Confidences" />
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnToggleHeatmap"
-            android:layout_width="50dp"
-            android:layout_height="50dp"
+            style="?attr/materialIconButtonFilledTonalStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_marginEnd="12dp"
-            android:background="@drawable/circle_button"
-            android:backgroundTint="#FF9800"
-            android:contentDescription="Toggle Heatmap/Polylines"
-            android:text="🔥"
-            android:textColor="@android:color/white"
-            android:textSize="18sp" />
-
-        <Button
+            app:icon="@android:drawable/ic_dialog_map"
+            app:iconTint="?attr/colorOnSecondaryContainer"
+            android:contentDescription="Toggle Heatmap/Polylines" />
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/settingsButton"
-            android:layout_width="50dp"
-            android:layout_height="50dp"
-            android:background="@drawable/circle_button"
-            android:backgroundTint="@color/black"
-            android:contentDescription="Open Settings"
-            android:text="⚙"
-            android:textColor="@android:color/white"
-            android:textSize="18sp"/>
+            style="?attr/materialIconButtonFilledTonalStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:icon="@android:drawable/ic_menu_preferences"
+            app:iconTint="?attr/colorOnSecondaryContainer"
+            android:contentDescription="Open Settings"/>
 
     </LinearLayout>
 
@@ -185,27 +159,33 @@
 
         <com.google.android.material.chip.Chip
             android:id="@+id/chipFilterWalk"
-            style="@style/Widget.MaterialComponents.Chip.Filter"
+            style="@style/Widget.Material3.Chip.Filter"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Walk"
-            app:chipIcon="@drawable/ic_walking" android:checked="true"/>
+            app:chipIcon="@drawable/ic_walking"
+            app:chipIconTint="?attr/colorOnSurfaceVariant"
+            android:checked="true"/>
 
         <com.google.android.material.chip.Chip
             android:id="@+id/chipFilterBike"
-            style="@style/Widget.MaterialComponents.Chip.Filter"
+            style="@style/Widget.Material3.Chip.Filter"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Bike"
-            app:chipIcon="@drawable/ic_directions_bike" android:checked="true"/>
+            app:chipIcon="@drawable/ic_directions_bike"
+            app:chipIconTint="?attr/colorOnSurfaceVariant"
+            android:checked="true"/>
 
         <com.google.android.material.chip.Chip
             android:id="@+id/chipFilterVehicle"
-            style="@style/Widget.MaterialComponents.Chip.Filter"
+            style="@style/Widget.Material3.Chip.Filter"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Vehicle"
-            app:chipIcon="@drawable/ic_directions_in_vehicle" android:checked="true"/>
+            app:chipIcon="@drawable/ic_directions_in_vehicle"
+            app:chipIconTint="?attr/colorOnSurfaceVariant"
+            android:checked="true"/>
 
     </com.google.android.material.chip.ChipGroup>
 
@@ -219,7 +199,7 @@
         android:contentDescription="Start or Stop Tracking"
         android:focusable="true"
         android:visibility="gone"
-        app:backgroundTint="?attr/colorPrimary"
+        app:backgroundTint="?attr/colorPrimaryContainer" app:tint="?attr/colorOnPrimaryContainer"
         app:elevation="6dp"
         app:fabSize="normal"
         app:layout_constraintBottom_toTopOf="@id/bottomControlsLayout"
@@ -227,20 +207,23 @@
         app:layout_constraintStart_toStartOf="parent"
         app:pressedTranslationZ="12dp"
         app:srcCompat="@drawable/ic_play"
-        app:tint="@android:color/white"
         tools:visibility="visible" />
 
 
-    <androidx.cardview.widget.CardView
+    <com.google.android.material.card.MaterialCardView
         android:id="@+id/journeyDetailsPanel"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:visibility="gone"
         app:cardElevation="8dp"
+        app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
+        app:strokeColor="?attr/colorOutlineVariant"
+        app:strokeWidth="1dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         android:clickable="true"
+        android:focusable="true"
         tools:visibility="visible">
 
         <LinearLayout
@@ -260,30 +243,31 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:textAppearance="?android:attr/textAppearanceLarge"
-                    android:textStyle="bold"
+                    android:textAppearance="?attr/textAppearanceTitleLarge"
+                    android:textColor="?attr/colorOnSurface"
                     tools:text="Morning Walk" />
 
-                <ImageButton
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnEditJourneyName"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="Edit Journey Name"
-                    android:padding="8dp"
-                    android:src="@android:drawable/ic_menu_edit" />
-
-                <ImageButton
-                    android:id="@+id/btnCloseDetailsPanel"
+                    style="?attr/materialIconButtonFilledTonalStyle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Edit Journey Name"
+                    app:icon="@android:drawable/ic_menu_edit"
+                    app:iconTint="?attr/colorOnSecondaryContainer" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnCloseDetailsPanel"
+                    style="?attr/materialIconButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
                     android:contentDescription="Close Details"
-                    android:src="@android:drawable/ic_menu_close_clear_cancel" />
+                    app:icon="@android:drawable/ic_menu_close_clear_cancel"
+                    app:iconTint="?attr/colorOnSurfaceVariant" />
 
             </LinearLayout>
-
 
             <TextView
                 android:id="@+id/tv_bottom_journey_mode"
@@ -291,7 +275,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="4dp"
-                android:textAppearance="?android:attr/textAppearanceMedium"
+                android:textAppearance="?attr/textAppearanceBodyLarge"
+                android:textColor="?attr/colorOnSurface"
                 tools:text="Mode: Walking" />
 
             <TextView
@@ -299,7 +284,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="2dp"
-                android:textAppearance="?android:attr/textAppearanceSmall"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="?attr/colorOnSurfaceVariant"
                 tools:text="Start: 10:00:00 (10 Apr)" />
 
             <TextView
@@ -307,7 +293,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="2dp"
-                android:textAppearance="?android:attr/textAppearanceSmall"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="?attr/colorOnSurfaceVariant"
                 tools:text="End: 10:30:00 (10 Apr)" />
 
             <TextView
@@ -315,15 +302,17 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="2dp"
-                android:textAppearance="?android:attr/textAppearanceSmall"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="?attr/colorOnSurfaceVariant"
                 tools:text="Duration: 30 min 0 sec" />
 
             <TextView
                 android:id="@+id/tv_bottom_journey_distance"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:textAppearance="?android:attr/textAppearanceSmall"
+                android:layout_marginBottom="4dp"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="?attr/colorOnSurfaceVariant"
                 tools:text="Distance: 1.50 km" />
 
             <TextView
@@ -331,26 +320,17 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="4dp"
-                android:textAppearance="?attr/textAppearanceBody2"
-                tools:text="Accuracy: 10.5 m" />
-
-            <Button
-                android:id="@+id/btnDeleteJourney"
-                style="@style/Widget.AppCompat.Button.Borderless"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:minHeight="0dp"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp"
-                android:text="Delete"
-                android:textColor="@android:color/holo_red_dark" />
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                tools:text="Avg Accuracy: 10.5 m" />
 
             <TextView
                 android:id="@+id/tv_bottom_journey_mode_breakdown"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp"
-                android:textAppearance="?attr/textAppearanceBody2"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant"
                 tools:text="Modes: Walking (80%), Still (20%)" />
 
             <LinearLayout
@@ -359,16 +339,16 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <Button
+                <com.google.android.material.button.MaterialButton
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:id="@+id/btnPrevJourney"
-                    style="@style/Widget.AppCompat.Button.Small"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Previous" />
 
-                <Button
+                <com.google.android.material.button.MaterialButton
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:id="@+id/btnNextJourney"
-                    style="@style/Widget.AppCompat.Button.Small"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
@@ -379,9 +359,18 @@
                     android:layout_height="0dp"
                     android:layout_weight="1" />
 
+                <com.google.android.material.button.MaterialButton
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:id="@+id/btnDeleteJourney"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Delete"
+                    app:strokeColor="?attr/colorError"
+                    android:textColor="?attr/colorError" />
+
             </LinearLayout>
 
         </LinearLayout>
-    </androidx.cardview.widget.CardView>
+    </com.google.android.material.card.MaterialCardView>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -5,13 +5,15 @@
     android:id="@+id/journeyListRootLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
     tools:context=".JourneyListActivity">
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/journeyRecyclerView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:clipToPadding="false" android:paddingBottom="8dp"
+        android:clipToPadding="false"
+        android:paddingBottom="8dp"
         android:paddingTop="8dp"
         app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
         tools:listitem="@layout/list_item_journey" />
@@ -23,7 +25,8 @@
         android:text="No saved journeys found."
         android:layout_gravity="center"
         android:visibility="gone"
+        android:textAppearance="?attr/textAppearanceBodyLarge"
+        android:textColor="?attr/colorOnSurfaceVariant"
         tools:visibility="visible"/>
-
 
 </FrameLayout>

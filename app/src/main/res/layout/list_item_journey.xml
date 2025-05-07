@@ -1,77 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:layout_width="match_parent"
+    xmlns:app="http://schemas.android.com/apk/res-auto"  android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:padding="12dp"
-    android:background="?android:attr/selectableItemBackground">
-
-    <ImageView
-        android:id="@+id/ivMapPreview"
-        android:layout_width="80dp"
-        android:layout_height="80dp"
-        android:scaleType="fitCenter"
-        android:background="#E0E0E0"
-        android:layout_gravity="center_vertical"
-        android:contentDescription="Map Preview"
-        tools:srcCompat="@drawable/ic_map_placeholder" />
-
-    <LinearLayout
+    android:background="?android:attr/selectableItemBackground"> <ImageView
+    android:id="@+id/ivMapPreview"
+    android:layout_width="80dp"
+    android:layout_height="80dp"
+    android:scaleType="centerCrop"
+    android:background="?attr/colorSurfaceVariant"
+    android:layout_gravity="center_vertical"
+    android:contentDescription="Map Preview"
+    tools:srcCompat="@drawable/ic_map_placeholder"
+    app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.Corner.Medium"/> <LinearLayout
     android:layout_width="0dp"
     android:layout_height="wrap_content"
     android:layout_weight="1"
     android:orientation="vertical"
-    android:layout_marginStart="12dp">
-
-    <TextView
-        android:id="@+id/journeyNameTextView"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textAppearance="?android:attr/textAppearanceMedium"
-        android:textStyle="bold"
-        android:layout_marginBottom="4dp"
-        tools:text="Journey Name"/>
+    android:layout_marginStart="16dp"> <TextView
+    android:id="@+id/journeyNameTextView"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:textAppearance="?attr/textAppearanceTitleMedium"
+    android:textColor="?attr/colorOnSurface"
+    android:layout_marginBottom="4dp"
+    android:maxLines="1"
+    android:ellipsize="end"
+    tools:text="Long Journey Name Example"/>
 
     <TextView
         android:id="@+id/tvJourneyDetails"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textAppearance="?android:attr/textAppearanceSmall"
-        tools:text="Start: ... | End: ... | Dist: ..."/>
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:maxLines="1"
+        android:ellipsize="end"
+        tools:text="Start: HH:MM | End: HH:MM | Dist: X.XX km"/>
 
     <TextView
         android:id="@+id/tv_journey_item_accuracy"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textAppearance="?android:attr/textAppearanceSmall"
-        tools:text="Accuracy: ..."
+        android:textAppearance="?attr/textAppearanceBodySmall"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        tools:text="Accuracy: XX.X m"
         android:layout_marginTop="2dp"/>
 
-    <TextView
-        android:id="@+id/journeyStartTimeTextView"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:visibility="gone" tools:text="16 Apr - 10:00:15"/>
-
-    <TextView
-        android:id="@+id/journeyDurationTextView"
-        android:visibility="gone" android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        tools:text="Duration: 30 min 5 sec"/>
-
-    <TextView
-        android:id="@+id/journeyDistanceTextView"
-        android:visibility="gone" android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        tools:text="Distance: 1.52 km"/>
-
-    <TextView
-        android:id="@+id/journeyModeTextView"
-        android:visibility="gone" android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        tools:text="Mode: Walking"/>
-
+    <TextView android:id="@+id/journeyStartTimeTextView" android:visibility="gone" android:layout_width="wrap_content" android:layout_height="wrap_content" tools:text="16 Apr - 10:00:15"/>
+    <TextView android:id="@+id/journeyDurationTextView" android:visibility="gone" android:layout_width="wrap_content" android:layout_height="wrap_content" tools:text="Duration: 30 min 5 sec"/>
+    <TextView android:id="@+id/journeyDistanceTextView" android:visibility="gone" android:layout_width="wrap_content" android:layout_height="wrap_content" tools:text="Distance: 1.52 km"/>
+    <TextView android:id="@+id/journeyModeTextView" android:visibility="gone" android:layout_width="wrap_content" android:layout_height="wrap_content" tools:text="Mode: Walking"/>
 
 </LinearLayout>
 </LinearLayout>

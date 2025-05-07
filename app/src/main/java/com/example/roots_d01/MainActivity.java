@@ -65,6 +65,7 @@ import org.maplibre.geojson.Feature;
 
 // --- Gson Imports ---
 import com.google.android.gms.location.DetectedActivity;
+import com.google.android.material.button.MaterialButton;
 import com.google.android.material.chip.Chip;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
@@ -157,7 +158,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     public static final String ACTION_MODE_OVERRIDE = "com.example.roots_d01.action.MODE_OVERRIDE";
     public static final String EXTRA_OVERRIDE_MODE = "com.example.roots_d01.extra.OVERRIDE_MODE";
     private ActivityResultLauncher<Intent> settingsLauncher;
-    private TextView trackingStatusLabel;
     private LocationTrackingService mService;
     private boolean mBound = false;
     private static final String STATUS_CHECKING_ACTIVITY = "Checking Activity...";
@@ -173,7 +173,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private TextView tvBottomJourneyDistance;
     private Button btnPrevJourney;
     private Button btnNextJourney;
-    private ImageButton btnCloseDetailsPanel;
+    private MaterialButton btnCloseDetailsPanel;
 
 
     // --- Highlighting State (MapLibre adaptation needed) ---
@@ -193,7 +193,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private final String VALHALLA_API_URL = "https://valhalla1.openstreetmap.de/trace_attributes";
     public static final String EXTRA_SELECTED_JOURNEY_START_TIME = "com.example.roots_d01.SELECTED_JOURNEY_START_TIME";
     private TextView tvBottomJourneyName;
-    private ImageButton btnEditJourneyName;
+    private MaterialButton btnEditJourneyName;
     private final Gson gson = new Gson();
     private MapManager mapManager;
     private UiUpdater uiUpdater;
@@ -514,8 +514,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             transportModeIcon = findViewById(R.id.transportModeIcon);
             startStopFab = findViewById(R.id.startStopFab);
             trackingModeSwitch = findViewById(R.id.trackingModeSwitch);
-            trackingStatusLabel = findViewById(R.id.trackingStatusTextView);
-            trackingStatusLabel = findViewById(R.id.trackingStatusTextView);
             tvBottomJourneyMode = findViewById(R.id.tv_bottom_journey_mode);
             tvBottomJourneyStartTime = findViewById(R.id.tv_bottom_journey_start_time);
             tvBottomJourneyEndTime = findViewById(R.id.tv_bottom_journey_end_time);
@@ -544,8 +542,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
 
             // *** Instantiate UiUpdater AFTER finding all its required views ***
-            uiUpdater = new UiUpdater(this, gpsStatusButton, transportModeIcon,
-                    trackingStatusLabel, startStopFab, trackingModeSwitch);
+            uiUpdater = new UiUpdater(this, gpsStatusButton, transportModeIcon,startStopFab, trackingModeSwitch);
             Log.d(TAG, "UiUpdater instantiated.");
 
             permissionHelper = new PermissionHelper(this, uiUpdater, this);
@@ -619,22 +616,13 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             }            // Update icon based on override or default state if not tracking
             if (overrideMode != null && isTrackingActive) {
                 uiUpdater.updateTransportModeIcon(overrideMode);
-                // Consider updating trackingStatusLabel here too if override active
-                uiUpdater.updateTrackingStatusLabel("Tracking: " + overrideMode);
             } else if (isTrackingActive) {
                 // If tracking was active but no override, maybe show "Auto" or last known?
                 // For now, let broadcast receiver handle detailed text update later.
-                uiUpdater.updateTrackingStatusLabel("Tracking..."); // Placeholder until receiver updates
                 uiUpdater.updateTransportModeIcon(null); // Clear icon until update
             }
             // --- End Apply Restored State ---
 
-
-
-            if (trackingStatusLabel == null) {
-                Log.e(TAG, "trackingStatusLabel not found in layout!");
-                // Handle error appropriately, maybe throw exception or just log
-            }
 
             if (rootView != null) {
                 ViewCompat.setOnApplyWindowInsetsListener(rootView, (v, windowInsets) -> {
@@ -674,7 +662,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private void setupOtherListeners() {
         Button recenterButton = findViewById(R.id.recenterButton);
         Button settingsButton = findViewById(R.id.settingsButton);
-        ImageButton activityInfoButton = findViewById(R.id.activityInfoButton);
+        MaterialButton activityInfoButton = findViewById(R.id.activityInfoButton);
         Button viewJourneysButton = findViewById(R.id.viewJourneysButton);
         Button btnToggleHeatmap = findViewById(R.id.btnToggleHeatmap);
         Chip chipWalk = findViewById(R.id.chipFilterWalk);
@@ -1763,9 +1751,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                     } else {
                         statusText = "Tracking: Starting..."; // Or "Tracking: Waiting..."
                     }
-                    if (uiUpdater != null) {
-                        uiUpdater.updateTrackingStatusLabel(statusText);
-                    }
+
 
                     if (uiUpdater != null) {
                         Log.d("BroadcastDebug", "Receiver: Updating icon drawable for mode: " + displayMode);
@@ -1852,7 +1838,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                         currentTrackLatLngs.clear(); // Clear points when tracking stops
                         updateCurrentPolylineSource(); // Update map source to be empty
                         // Update status label if needed (e.g., show "Idle")
-                        if (uiUpdater != null) uiUpdater.updateTrackingStatusLabel(null); // Clear status text
                     }
                 } else {
                     Log.d("MainActivityReceiver", "Skipping state update - Activity state already matches service state (" + MainActivity.this.isTrackingActive + ")");
@@ -1873,7 +1858,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                 Log.w(TAG, "Received GPS Disabled broadcast.");
                 if (uiUpdater != null) {
                     uiUpdater.updateGPSIndicator(0);
-                    uiUpdater.updateTrackingStatusLabel("GPS Disabled");
                 }
                 Toast.makeText(MainActivity.this, "GPS Disabled", Toast.LENGTH_SHORT).show();
 
@@ -1881,7 +1865,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                 Log.e(TAG, "Received Location Permission Error broadcast.");
                 if (uiUpdater != null) {
                     uiUpdater.updateGPSIndicator(0);
-                    uiUpdater.updateTrackingStatusLabel("Permission Error");
                 }
                 Toast.makeText(MainActivity.this, "Location Permission Error", Toast.LENGTH_LONG).show();
             }
@@ -1932,21 +1915,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                 }
             }
             Log.d(TAG_UI, "updateUiForDetectedActivity: isRecordableActivity = " + isRecordableActivity);
-
-
-            // --- Update Status Label ---
-            if ("Still".equals(detectedMode)) {
-                updateTrackingStatusLabel("Still");
-                // --- REMOVED: if check for MODE_DETERMINING ---
-            } else if (!isRecordableActivity) {
-                // Handles "Unknown" or other non-recordable modes when inactive
-                updateTrackingStatusLabel("Awaiting Movement");
-            } else {
-                // Detected a recordable activity (Walking/Biking/Vehicle) while inactive
-                updateTrackingStatusLabel("Awaiting Movement"); // Keep this label until tracking starts
-            }
-            // If it's a recordable but non-determining activity, maybe don't change the label from "Awaiting Movement"
-            // until tracking starts. Current logic does this.
 
 
             // --- Update Icons (Marker and Top Icon) ---
@@ -2026,10 +1994,8 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         if (MODE_MANUAL.equals(currentMode)) {
             // Apply default override BEFORE setting label
             applyOverrideMode("Walking"); // Apply default and broadcast to service
-            uiUpdater.updateTrackingStatusLabel("Tracking: Walking"); // Show initial override
         } else {
             clearOverrideMode();
-            uiUpdater.updateTrackingStatusLabel("Tracking: Auto"); // Indicate auto mode started
         }
         // <<< ADD: To store last mode when tracking
         String lastKnownModeForLabel = MODE_MANUAL.equals(currentMode) ? "Walking" : "Auto"; // Store initial mode
@@ -2102,7 +2068,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         // Optional: Reload all polylines to show the just-finished one immediately
         // loadAllPolylineData();
 
-        uiUpdater.updateTrackingStatusLabel(null); // Or set appropriate inactive text
         SharedPreferences prefs = getSharedPreferences("Settings", MODE_PRIVATE);
         String currentMode = prefs.getString(KEY_TRACKING_MODE, MODE_AUTO);
         if (uiUpdater != null) {
@@ -2272,15 +2237,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                 return R.drawable.ic_directions_in_vehicle;
             default:
                 return R.drawable.ic_man_still; // Fallback
-        }
-    }
-
-
-
-    // Ensure updateTrackingStatusLabel exists
-    private void updateTrackingStatusLabel(String statusText) {
-        if (uiUpdater != null) {
-            uiUpdater.updateTrackingStatusLabel(statusText);
         }
     }
 

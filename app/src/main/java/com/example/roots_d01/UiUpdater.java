@@ -26,7 +26,6 @@ public class UiUpdater {
     // References to UI elements passed from MainActivity
     private final Button gpsStatusButton;
     private final ImageView transportModeIcon;
-    private final TextView trackingStatusLabel;
     private final FloatingActionButton startStopFab;
     private final SwitchMaterial trackingModeSwitch;
 
@@ -40,12 +39,11 @@ public class UiUpdater {
 
     // Constructor accepting all required UI elements
     public UiUpdater(Context context, Button gpsStatusButton, ImageView transportModeIcon,
-                     TextView trackingStatusLabel, FloatingActionButton startStopFab,
+           FloatingActionButton startStopFab,
                      SwitchMaterial trackingModeSwitch) {
         this.context = context.getApplicationContext(); // Use application context
         this.gpsStatusButton = gpsStatusButton;
         this.transportModeIcon = transportModeIcon;
-        this.trackingStatusLabel = trackingStatusLabel;
         this.startStopFab = startStopFab;
         this.trackingModeSwitch = trackingModeSwitch;
     }
@@ -100,26 +98,6 @@ public class UiUpdater {
         this.updateGPSIndicator(status);
     }
 
-    /**
-     * Updates the text and visibility of the tracking status label.
-     *
-     * @param statusText The text to display, or null/empty to hide the label.
-     */
-    public void updateTrackingStatusLabel(@Nullable String statusText) {
-        if (this.trackingStatusLabel == null) { // Use member variable
-            Log.w(TAG, "updateTrackingStatusLabel: trackingStatusLabel is null.");
-            return;
-        }
-
-        if (statusText != null && !statusText.isEmpty()) {
-            this.trackingStatusLabel.setText(statusText);
-            this.trackingStatusLabel.setVisibility(View.VISIBLE);
-            Log.d(TAG, "Updated Tracking Status Label: " + statusText);
-        } else {
-            this.trackingStatusLabel.setVisibility(View.GONE);
-            Log.d(TAG, "Hid Tracking Status Label");
-        }
-    }
 
     // --- Method: updateStartStopButtonState (Moved from MainActivity) ---
 
@@ -141,7 +119,7 @@ public class UiUpdater {
                 this.startStopFab.setImageResource(R.drawable.ic_play);
                 // Get primary color using member context
                 // Explicitly set the background color for the inactive (play) state
-                int explicitPlayColor = ContextCompat.getColor(context, R.color.purple_500); // Use purple_500 or another opaque color like R.color.black
+                int explicitPlayColor = ContextCompat.getColor(context, R.color.md_theme_dark_errorContainer); // Use purple_500 or another opaque color like R.color.black
                 this.startStopFab.setBackgroundTintList(ColorStateList.valueOf(explicitPlayColor));
                 Log.d(TAG, "updateStartStopButtonState: Set FAB to PLAY");
             }
@@ -268,11 +246,6 @@ public class UiUpdater {
             // --- When tracking is INACTIVE ---
             Log.d(TAG, "updateUiBasedOnTrackingMode: Setting INACTIVE UI state.");
             // Set status label text
-            if (isManual) {
-                this.updateTrackingStatusLabel(STATUS_MANUAL_MODE);
-            } else {
-                this.updateTrackingStatusLabel(STATUS_AWAITING_MOVEMENT);
-            }
             updateTransportModeIcon(null); // Set default image resource
 
         } else {
@@ -282,12 +255,6 @@ public class UiUpdater {
                 this.transportModeIcon.setVisibility(View.VISIBLE); // Make visible
                 this.transportModeIcon.setClickable(true);          // Make clickable
             }
-            // NOTE: The specific active status text ("Tracking: Walking", etc.) and specific
-            // transport icon/background/animation will be set by calls originating from the
-            // broadcast receiver (which calls updateStartStopButtonState).
-            // We could set a generic "Tracking..." label here via updateTrackingStatusLabel("Tracking...")
-            // but leaving it to the receiver updates is likely better for accuracy.
-            // *** End of ACTIVE block ***
         }
     } // *** CORRECTED closing brace location for updateUiBasedOnTrackingMode ***
 } // End of UiUpdater class
