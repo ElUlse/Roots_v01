@@ -214,7 +214,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     public static final String ACTION_ALL_ACTIVITIES_UPDATE = "com.example.roots_d01.action.ALL_ACTIVITIES_UPDATE";
     public static final String EXTRA_ALL_ACTIVITIES = "com.example.roots_d01.extra.ALL_ACTIVITIES";
     private List<DetectedActivity> lastDetectedActivities = new ArrayList<>();
-    private ImageButton setNorthButton;
+    private FloatingActionButton setNorthButton;
     private boolean isOrientationLocked = true;
     private View rootView;
     private PolylinePathAnimator polylinePathAnimator = null;
@@ -252,6 +252,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private MaterialButton viewJourneysButton; // Changed from Button?
     private MaterialButton btnToggleHeatmap; // Changed from Button?
     private Chip chipWalk, chipBike, chipVehicle; // Add chipAll if used
+
 
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
     @Override
@@ -557,7 +558,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             chipWalk = findViewById(R.id.chipFilterWalk);
             chipBike = findViewById(R.id.chipFilterBike);
             chipVehicle = findViewById(R.id.chipFilterVehicle);
-            setNorthButton = findViewById(R.id.setNorthButton);
 
 
 

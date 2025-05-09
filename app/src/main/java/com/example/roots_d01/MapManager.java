@@ -80,7 +80,7 @@ public class MapManager {
     private final SensorEventListener sensorEventListener;
 
     // Inside MapManager.java
-    private static final Map<String, String> PREDEFINED_STYLE_URLS = new HashMap<>();
+    public static final Map<String, String> PREDEFINED_STYLE_URLS = new HashMap<>();
 
     static {
         PREDEFINED_STYLE_URLS.put("OSM Bright", "https://api.maptiler.com/maps/streets-v2/style.json?key=dnuxooBP2JxDA2AXS2AD");

@@ -57,7 +57,7 @@ public class PolylineManager {
     public static final float SKIP_MATCHING_ACCURACY_THRESHOLD = 15.0f; // Your threshold (meters) 80% of points must be more accurate than this value to skip matching
     private static final String TAG_MATCH_CHECK = "MapMatchCheck";
     private final AtomicBoolean isSavePending = new AtomicBoolean(false); // Add this
-
+    private float initialDistanceThresholdMeters;
 
     // Constructor
     public PolylineManager(Context context, ExecutorService executor, Gson gsonInstance, Handler handler) { // <<< ADDED Handler handler parameter
@@ -67,10 +67,10 @@ public class PolylineManager {
         this.mainThreadHandler = handler; // <<< Now 'handler' exists and is assigned
 
         SharedPreferences prefs = context.getSharedPreferences("Settings", Context.MODE_PRIVATE);
-        // Use the same key and default as in SettingsActivity
-        this.initialDistanceThreshold = (float) prefs.getInt(
-                SettingsActivity.KEY_INITIAL_DISTANCE_THRESHOLD,
-                SettingsActivity.DEFAULT_INITIAL_DISTANCE_THRESHOLD
+        // Use the NEW constant names from SettingsActivity
+        initialDistanceThresholdMeters = prefs.getInt(
+                SettingsActivity.KEY_INITIAL_RECORDING_DISTANCE_METERS, // <<< NEW NAME
+                SettingsActivity.DEFAULT_INITIAL_DISTANCE // <<< NEW NAME
         );
         Log.d(TAG, "PolylineManager loaded Initial Distance Threshold: " + this.initialDistanceThreshold + "m");
 
