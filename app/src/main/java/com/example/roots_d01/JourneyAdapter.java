@@ -16,7 +16,9 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -33,10 +35,13 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
     private final ExecutorService backgroundExecutor = Executors.newSingleThreadExecutor();
     private final Handler mainThreadHandler = new Handler(Looper.getMainLooper());
     private final OnJourneyActionListener actionListener;
+    private Map<String, Boolean> headerExpansionStates; // ADDED: To hold expansion states
+
 
     // --- Interface for Activity communication ---
     public interface OnJourneyActionListener {
         void onRenameRequested(JourneyDetails journey);
+        void onHeaderClicked(String headerDate);
     }
 
     // --- Constructor ---
@@ -45,7 +50,17 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
         this.context = context;
         this.listItems = (items != null) ? new ArrayList<>(items) : new ArrayList<>();
         this.actionListener = listener;
+        this.headerExpansionStates = new HashMap<>(); // Initialize, will be updated
         Log.d("JourneyAdapter", "Adapter created with " + this.listItems.size() + " initial items.");
+    }
+
+    // Inside JourneyAdapter.java class
+
+    public Object getItemForLog(int position) {
+        if (listItems != null && position >= 0 && position < listItems.size()) {
+            return listItems.get(position);
+        }
+        return null;
     }
 
     // --- getItemViewType ---
@@ -73,13 +88,12 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
     public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         LayoutInflater inflater = LayoutInflater.from(parent.getContext());
         if (viewType == VIEW_TYPE_HEADER) {
-            // Inflate header layout - Ensure R.layout.list_item_date_header exists
             View headerView = inflater.inflate(R.layout.list_item_date_header, parent, false);
-            return new HeaderViewHolder(headerView);
-        } else { // VIEW_TYPE_JOURNEY
+            // MODIFIED: Pass actionListener to HeaderViewHolder
+            return new HeaderViewHolder(headerView, actionListener);
+        } else {
             View journeyView = inflater.inflate(R.layout.list_item_journey, parent, false);
-            // Pass context/listener to JourneyViewHolder if its constructor requires them
-            return new JourneyViewHolder(journeyView); // Pass 'this' if interface needed in VH
+            return new JourneyViewHolder(journeyView);
         }
     }
 
@@ -98,14 +112,13 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
             if (viewType == VIEW_TYPE_HEADER) {
                 HeaderViewHolder headerHolder = (HeaderViewHolder) holder;
                 String dateText = (String) item;
-                headerHolder.bind(dateText);
+                // MODIFIED: Get expansion state
+                boolean isExpanded = headerExpansionStates.getOrDefault(dateText, true); // Default to expanded
+                headerHolder.bind(dateText, isExpanded);
             } else if (viewType == VIEW_TYPE_JOURNEY) {
                 JourneyViewHolder journeyHolder = (JourneyViewHolder) holder;
                 JourneyDetails journeyDetails = (JourneyDetails) item;
-
-                // --- Bind Journey Data ---
                 journeyHolder.bindJourney(journeyDetails, context, backgroundExecutor, mainThreadHandler, position);
-
             } else {
                 Log.w("JourneyAdapter", "onBindViewHolder: Unknown view type " + viewType + " at position " + position);
             }
@@ -116,6 +129,7 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
         }
     }
 
+
     // --- getItemCount ---
     @Override
     public int getItemCount() {
@@ -123,10 +137,10 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
     }
 
     // --- Method to update data ---
-    // Accepts List<Object>
-    public void updateJourneys(List<Object> newItems) {
+    public void updateJourneys(List<Object> newItems, Map<String, Boolean> expansionStates) {
         this.listItems = (newItems != null) ? new ArrayList<>(newItems) : new ArrayList<>();
-        Log.d("JourneyAdapter", "Adapter updated with " + this.listItems.size() + " new items.");
+        this.headerExpansionStates = (expansionStates != null) ? new HashMap<>(expansionStates) : new HashMap<>();
+        Log.d("JourneyAdapter", "Adapter updated with " + this.listItems.size() + " new items. Expansion states count: " + this.headerExpansionStates.size());
         notifyDataSetChanged(); // Consider using DiffUtil later
     }
 
@@ -138,20 +152,35 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
     // --- Header ViewHolder ---
     public static class HeaderViewHolder extends RecyclerView.ViewHolder {
         TextView tvDateHeader;
+        ImageView ivExpansionIndicator;
+        OnJourneyActionListener listener;
 
-        public HeaderViewHolder(@NonNull View itemView) {
+        public HeaderViewHolder(@NonNull View itemView, OnJourneyActionListener listener) { // MODIFIED
             super(itemView);
-            // Use the ID from your list_item_date_header.xml
+            this.listener = listener; // ADDED
             tvDateHeader = itemView.findViewById(R.id.tvDateHeader);
-            if (tvDateHeader == null) {
-                Log.e("JourneyAdapter", "HeaderViewHolder: tvDateHeader TextView not found!");
+            ivExpansionIndicator = itemView.findViewById(R.id.ivExpansionIndicator); // ADDED
+
+            if (tvDateHeader == null || ivExpansionIndicator == null) {
+                Log.e("JourneyAdapter", "HeaderViewHolder: tvDateHeader or ivExpansionIndicator not found!");
             }
         }
 
-        public void bind(String dateText) {
+        public void bind(String dateText, boolean isExpanded) {
             if (tvDateHeader != null) {
                 tvDateHeader.setText(dateText);
             }
+            if (ivExpansionIndicator != null) {
+                // SET icon based on isExpanded state
+                ivExpansionIndicator.setImageResource(isExpanded ? R.drawable.ic_expand_less : R.drawable.ic_expand_more);
+            }
+
+            // ADDED: Set click listener for the entire header item
+            itemView.setOnClickListener(v -> {
+                if (listener != null) {
+                    listener.onHeaderClicked(dateText); // Notify activity
+                }
+            });
         }
     }
 
@@ -207,14 +236,13 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
                 int position = getAdapterPosition();
                 if (position != RecyclerView.NO_POSITION && actionListener != null && listItems != null && position < listItems.size()) {
                     Object item = listItems.get(position);
-                    if (item instanceof JourneyDetails) { // Check if it's a journey
+                    if (item instanceof JourneyDetails) {
                         JourneyDetails longClickedJourney = (JourneyDetails) item;
-                        Log.d("JourneyAdapter", "Long press detected for journey: " + (longClickedJourney.journeyName != null ? longClickedJourney.journeyName : "null"));
-                        actionListener.onRenameRequested(longClickedJourney); // Call interface method
-                        return true; // Consumed
+                        actionListener.onRenameRequested(longClickedJourney); // Uses adapter's listener
+                        return true;
                     }
                 }
-                return false; // Did not consume
+                return false;
             });
         }
 
@@ -263,6 +291,7 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
         private int dpToPx(int dp) {
             return Math.round((float) dp * context.getResources().getDisplayMetrics().density);
         }
+
     }
     // --- End of JourneyViewHolder ---
 

@@ -40,12 +40,22 @@
         android:textColor="?attr/colorOnSurface"
         android:layout_marginBottom="8dp" />
 
-    <Spinner
-        android:id="@+id/mapTileSourceSpinner"
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/mapStyleDropdownLayout"
+        style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:minHeight="48dp"
-        android:layout_marginBottom="16dp"/>
+        android:hint="Map Style"
+        android:layout_marginBottom="16dp">
+
+        <AutoCompleteTextView
+            android:id="@+id/mapStyleDropdown"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="none"
+            tools:ignore="LabelFor" />
+
+    </com.google.android.material.textfield.TextInputLayout>
     <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginTop="16dp" android:layout_marginBottom="16dp"/>
 
     <TextView
@@ -93,12 +103,15 @@
             android:textStyle="bold"/>
     </LinearLayout>
 
-    <SeekBar
+    <com.google.android.material.slider.Slider
         android:id="@+id/initialDistanceSeekBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:max="190"
-        android:progress="40"
+        android:valueFrom="10.0"
+        android:valueTo="200.0"
+        android:stepSize="10.0"
+        android:value="50.0"
+        android:contentDescription="Initial recording delay distance slider"
         android:layout_marginBottom="16dp"/>
     <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginTop="16dp" android:layout_marginBottom="16dp"/>
 
@@ -118,14 +131,16 @@
         android:textAppearance="?attr/textAppearanceTitleMedium"
         android:textColor="?attr/colorOnSurface"/>
 
-    <SeekBar
+    <com.google.android.material.slider.Slider
         android:id="@+id/polylineThicknessSeekBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:max="20"
-        android:progress="5" />
-
+        android:valueFrom="1.0"
+        android:valueTo="20.0"
+        android:stepSize="1.0"
+        android:value="5.0"
+        android:contentDescription="Polyline thickness slider"/>
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -163,9 +178,7 @@
         <TextView android:id="@+id/inVehicleColorView" android:layout_width="48dp" android:layout_height="48dp" android:background="@color/red" android:clickable="true" android:focusable="true" android:layout_marginStart="8dp" />
     </LinearLayout>
 
-
     <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginTop="16dp" android:layout_marginBottom="16dp"/>
-
 
     <TextView
         android:layout_width="wrap_content"
@@ -269,19 +282,21 @@
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Delete tracks older than:"
             android:textAppearance="?attr/textAppearanceBodyLarge"
             android:textColor="?attr/colorOnSurfaceVariant"/>
-        <TextView android:id="@+id/deletePeriodValueTextView" android:layout_width="wrap_content" android:layout_height="wrap_content" android:minWidth="50dp" android:gravity="end" android:layout_marginStart="8dp" android:layout_marginEnd="8dp" tools:text="7 days"
+        <TextView android:id="@+id/deletePeriodValueTextView" android:layout_width="wrap_content" android:layout_height="wrap_content" android:minWidth="70dp" android:gravity="end" android:layout_marginStart="8dp" android:layout_marginEnd="8dp" tools:text="7 days"
             android:textAppearance="?attr/textAppearanceBodyLarge"
             android:textColor="?attr/colorOnSurface" android:textStyle="bold"/>
     </LinearLayout>
 
-    <SeekBar
+    <com.google.android.material.slider.Slider
         android:id="@+id/deletePeriodSeekBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:max="90"
-        android:progress="7"
+        android:valueFrom="1.0"
+        android:valueTo="90.0"
+        android:stepSize="1.0"
+        android:value="7.0"
+        android:contentDescription="Delete tracks older than slider"
         android:layout_marginBottom="8dp"/>
-
     <com.google.android.material.button.MaterialButton
         android:id="@+id/executeClearOlderTracksButton"
         style="@style/Widget.Material3.Button.OutlinedButton"
@@ -332,8 +347,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Disk Cache Size"
+        android:text="Maximum Disk Cache Size"
         android:textAppearance="?attr/textAppearanceTitleMedium"
         android:textColor="?attr/colorOnSurface" />
 
@@ -348,14 +362,14 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Max Size:"
+            android:text="Limit:"
             android:textAppearance="?attr/textAppearanceBodyLarge"
             android:textColor="?attr/colorOnSurfaceVariant"/>
 
         <TextView
             android:id="@+id/cacheSizeValueTextView" android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:minWidth="60dp"
+            android:minWidth="80dp"
             android:gravity="end"
             android:layout_marginStart="8dp"
             android:layout_marginEnd="8dp"
@@ -365,10 +379,26 @@
             android:textStyle="bold"/>
     </LinearLayout>
 
-    <SeekBar
-        android:id="@+id/cacheSizeSeekBar" android:layout_width="match_parent"
+    <com.google.android.material.slider.Slider
+        android:id="@+id/cacheSizeSeekBar"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:max="950" android:progress="450" android:layout_marginBottom="16dp"/>
+        android:valueFrom="50.0"
+        android:valueTo="1000.0"
+        android:stepSize="50.0"
+        android:value="500.0"
+        android:contentDescription="Map cache size slider"
+        android:layout_marginBottom="8dp"/>
+    <TextView
+        android:id="@+id/currentCacheUsageTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="16dp"
+        android:text="Current Usage: N/A"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textColor="?attr/colorOnSurfaceVariant"/>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/clearCacheButton"
@@ -387,6 +417,5 @@
         android:layout_gravity="center_horizontal"
         android:layout_marginTop="16dp"
         android:text="Save Settings" />
-    ```
 </LinearLayout>
 </ScrollView>

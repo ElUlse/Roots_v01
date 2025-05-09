@@ -214,7 +214,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     public static final String ACTION_ALL_ACTIVITIES_UPDATE = "com.example.roots_d01.action.ALL_ACTIVITIES_UPDATE";
     public static final String EXTRA_ALL_ACTIVITIES = "com.example.roots_d01.extra.ALL_ACTIVITIES";
     private List<DetectedActivity> lastDetectedActivities = new ArrayList<>();
-    private ImageButton setNorthButton;
+    private FloatingActionButton setNorthButton;
     private boolean isOrientationLocked = true;
     private View rootView;
     private PolylinePathAnimator polylinePathAnimator = null;
@@ -252,6 +252,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private MaterialButton viewJourneysButton; // Changed from Button?
     private MaterialButton btnToggleHeatmap; // Changed from Button?
     private Chip chipWalk, chipBike, chipVehicle; // Add chipAll if used
+
 
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
     @Override
@@ -557,7 +558,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             chipWalk = findViewById(R.id.chipFilterWalk);
             chipBike = findViewById(R.id.chipFilterBike);
             chipVehicle = findViewById(R.id.chipFilterVehicle);
-            setNorthButton = findViewById(R.id.setNorthButton);
 
 
 
@@ -1228,11 +1228,21 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         // is now triggered from onServiceConnected *or* can be called here
         // if already bound.**
         if (mBound && mService != null) {
-            Log.d(TAG, "onResume: Already bound, triggering polyline update.");
-            updateCurrentPolylineFromService();
+            Log.d(TAG, "onResume: Already bound, triggering polyline update from service.");
+            // It's good to also sync the general tracking state here too,
+            // in case it changed while the app was paused and the service was rebound for some reason.
+            boolean serviceIsTracking = mService.isCurrentlyTracking();
+            if (MainActivity.this.isTrackingActive != serviceIsTracking) {
+                Log.w(TAG_SYNC, "ACTIVITY onResume (already bound): Service says tracking = " + serviceIsTracking + ". Current Activity flag was = " + MainActivity.this.isTrackingActive +". Syncing.");
+                MainActivity.this.isTrackingActive = serviceIsTracking;
+                if (uiUpdater != null) {
+                    uiUpdater.updateStartStopButtonState(MainActivity.this.isTrackingActive, getCurrentEffectiveMode());
+                }
+            }
+            updateCurrentPolylineFromService(); // Fetch and redraw the current polyline
         } else {
-            Log.d(TAG, "onResume: Not bound yet, update will trigger onServiceConnected.");
-            // Binding is initiated in onStart, onServiceConnected will call updateCurrentPolylineFromService
+            Log.d(TAG, "onResume: Not bound to service yet, update will trigger onServiceConnected.");
+            // Binding is initiated in onStart if not already bound.
         }
         Log.d(TAG, "--------- onResume END ---------");
     }
@@ -1430,40 +1440,66 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         }
     }
 
-
     /**
      * Fetches current track points from service and updates the visual representation.
-     * Needs complete rewrite for MapLibre.
      */
     private void updateCurrentPolylineFromService() {
-        if (!mBound || mService == null) { /* ... */ return; }
-
-        Log.d(TAG, "Requesting current track points from service...");
-        List<PolylinePoint> currentPoints = mService.getCurrentTrackPoints();
-        Log.d(TAG, "Received " + (currentPoints != null ? currentPoints.size() : "null") + " points from service.");
-
-        if (mapView == null || maplibreMap == null || maplibreMap.getStyle() == null) { // Add MapLibre checks
-            Log.e(TAG, "Map/Style not ready in updateCurrentPolylineFromService.");
+        if (!mBound || mService == null) {
+            Log.w(TAG, "updateCurrentPolylineFromService: Not bound to service or service is null. Cannot update.");
+            currentTrackLatLngs.clear(); // Clear local list if not bound
+            updateCurrentPolylineSource(); // Update map to show empty polyline
+            if (currentPolylineAnimator != null) {
+                currentPolylineAnimator.stopBlinking(); // Stop blinking if service disconnects
+            }
             return;
         }
 
-        // TODO: Implement MapLibre Update Logic:
-        // 1. Get the GeoJsonSource for the current polyline (e.g., "current-polyline-source").
-        // 2. Convert 'currentPoints' (List<PolylinePoint>) to List<Point> for GeoJSON LineString.
-        // 3. Update the source: currentPolylineSource.setGeoJson(LineString.fromLngLats(listOfMapboxPoints));
-        // 4. Ensure the corresponding LineLayer is visible and styled correctly.
-        Log.w(TAG, "updateCurrentPolylineFromService: MapLibre source update logic needed.");
+        Log.d(TAG, "Requesting current track points from service for polyline update...");
+        List<PolylinePoint> serviceTrackPoints = mService.getCurrentTrackPoints(); // Method in your service
+        Log.d(TAG, "Received " + (serviceTrackPoints != null ? serviceTrackPoints.size() : "null") + " points from service.");
 
-        // Update animator (needs adaptation)
-        if (currentPolylineAnimator != null) {
-            Log.i(TAG, "Calling startBlinking() from startTracking()"); // <-- ADD LOG
-            if (isTrackingActive) {
-                currentPolylineAnimator.startBlinking();
+        // Create a new list for LatLng objects
+        List<LatLng> newTrackLatLngs = new ArrayList<>(); // MODIFIED/NEW
+
+        if (serviceTrackPoints != null && !serviceTrackPoints.isEmpty()) {
+            for (PolylinePoint p : serviceTrackPoints) {
+                newTrackLatLngs.add(new LatLng(p.latitude, p.longitude));
             }
         }
 
-        mapView.invalidate(); // Keep invalidate
-        Log.d(TAG, "MapView invalidated after updating current polyline from service.");
+        // --- This is the critical part of the fix ---
+        // Replace the MainActivity's local list with the complete list from the service
+        this.currentTrackLatLngs = newTrackLatLngs; // MODIFIED/NEW
+        Log.d(TAG, "Updated MainActivity.currentTrackLatLngs with " + this.currentTrackLatLngs.size() + " points from service.");
+
+        // Now update the map's data source using the refreshed list
+        updateCurrentPolylineSource(); // bestehende Methode, die die MapLibre-Quelle aktualisiert
+
+        // Update animator state based on whether there are points and if tracking is active
+        if (currentPolylineAnimator != null) {
+            if (isTrackingActive && !this.currentTrackLatLngs.isEmpty()) {
+                // Ensure the animator has the correct layer ID
+                if (maplibreMap != null && maplibreMap.getStyle() != null && maplibreMap.getStyle().getLayer(CURRENT_TRACK_LAYER_ID) != null) {
+                    currentPolylineAnimator.setTargetLayerId(CURRENT_TRACK_LAYER_ID);
+                    currentPolylineAnimator.startBlinking();
+                    Log.d(TAG, "updateCurrentPolylineFromService: Started/Continued blinking.");
+                } else {
+                    Log.w(TAG, "updateCurrentPolylineFromService: Cannot start animator, map/style/layer not ready.");
+                    currentPolylineAnimator.stopBlinking();
+                }
+            } else {
+                currentPolylineAnimator.stopBlinking();
+                Log.d(TAG, "updateCurrentPolylineFromService: Stopped blinking (not tracking or no points).");
+            }
+        }
+
+        // No need for mapView.invalidate() here if updateCurrentPolylineSource() correctly updates the GeoJsonSource,
+        // as MapLibre should handle redrawing automatically.
+        // If you still face issues, you can add:
+        // if (mapView != null) {
+        //     mapView.invalidate();
+        // }
+        Log.d(TAG, "updateCurrentPolylineFromService: Update complete.");
     }
 
 
@@ -1701,47 +1737,32 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
         @Override
         public void onServiceConnected(ComponentName className, IBinder service) {
-            Log.d(TAG_SYNC, "--------- onServiceConnected START ---------"); // <<< ADD LOG START
-            // We've bound to LocalService, cast the IBinder and get LocalService instance
+            Log.d(TAG_SYNC, "--------- onServiceConnected START ---------");
             LocationTrackingService.LocalBinder binder = (LocationTrackingService.LocalBinder) service;
             mService = binder.getService();
             mBound = true;
             Log.d(TAG, "Service Bound from MainActivity");
-            // *** NEW: Query service state immediately after binding ***
+
             if (mService != null) {
                 boolean serviceIsTracking = mService.isCurrentlyTracking();
                 Log.w(TAG_SYNC, "ACTIVITY onServiceConnected: Service says tracking = " + serviceIsTracking + ". Current Activity flag was = " + MainActivity.this.isTrackingActive);
-                // Update MainActivity's state based on the service's ground truth
-                MainActivity.this.isTrackingActive = serviceIsTracking;
+                MainActivity.this.isTrackingActive = serviceIsTracking; // Sync state
                 Log.w(TAG_SYNC, "ACTIVITY onServiceConnected: UPDATED MainActivity.isTrackingActive to = " + MainActivity.this.isTrackingActive);
 
-                // Update button states etc. based on the correct state NOW
-                Log.d(TAG_SYNC, "onServiceConnected: Calling uiUpdater.updateStartStopButtonState"); // <<< ADD LOG
-                if (uiUpdater != null) {
-                    // Pass false for isTrackingActive and "Still" for effectiveMode
-                    uiUpdater.updateStartStopButtonState(isTrackingActive, "Still");
-                } else {
-                    Log.w(TAG, "UiUpdater is null in stopTracking.");
-                }                String modeFromPrefsLine1297 = getSharedPreferences("Settings", MODE_PRIVATE).getString(KEY_TRACKING_MODE, "auto"); // Read mode
-                if (uiUpdater != null) {
-                    uiUpdater.updateUiBasedOnTrackingMode(modeFromPrefsLine1297, isTrackingActive); // Add isTrackingActive
+                if (uiUpdater != null) { // Update general UI state
+                    String modeFromPrefs = getSharedPreferences("Settings", MODE_PRIVATE).getString(KEY_TRACKING_MODE, MODE_AUTO);
+                    uiUpdater.updateUiBasedOnTrackingMode(modeFromPrefs, MainActivity.this.isTrackingActive);
+                    uiUpdater.updateStartStopButtonState(MainActivity.this.isTrackingActive, getCurrentEffectiveMode()); // Also update start/stop button
                 }
-                // Now, trigger the polyline update using the fresh state
-                Log.d(TAG_SYNC, "onServiceConnected: Triggering polyline update from service."); // <<< ADD LOG
                 updateCurrentPolylineFromService();
-
             } else {
-                Log.e(TAG_SYNC, "onServiceConnected: mService is null after binding!"); // <<< Use TAG_SYNC
-                // Handle error case - maybe default isTrackingActive to false?
+                Log.e(TAG_SYNC, "onServiceConnected: mService is null after binding!");
                 MainActivity.this.isTrackingActive = false;
-                Log.d(TAG_SYNC, "onServiceConnected: Calling uiUpdater.updateStartStopButtonState (error case)"); // <<< ADD LOG
                 if (uiUpdater != null) {
-                    // Pass false for isTrackingActive and "Still" for effectiveMode
-                    uiUpdater.updateStartStopButtonState(isTrackingActive, "Still");
-                } else {
-                    Log.w(TAG, "UiUpdater is null in stopTracking.");
-                }            }
-            Log.d(TAG_SYNC, "--------- onServiceConnected END ---------"); // <<< ADD LOG END
+                    uiUpdater.updateStartStopButtonState(MainActivity.this.isTrackingActive, null);
+                }
+            }
+            Log.d(TAG_SYNC, "--------- onServiceConnected END ---------");
         }
 
         @Override
