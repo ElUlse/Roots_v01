@@ -145,6 +145,12 @@ public class LocationTrackingService extends Service {
     private static final float MAX_SPEED_FOR_STILL_RESET_MS = 1.5f; // ~5.4 km/h
     private static final float MIN_SPEED_FOR_VEHICLE_RESET_MS = 2.0f; // ~7.2 km/h
     private static final float MAX_SPEED_FOR_BICYCLE_RESET_MS = 10.0f; // ~36 km/h
+    // Define the new broadcast action
+    public static final String ACTION_NEW_JOURNEY_SAVED = "com.example.roots_d01.action.NEW_JOURNEY_SAVED";
+    // Optional: If you want to pass the start time of the newly saved journey
+    public static final String EXTRA_NEW_JOURNEY_START_TIME = "com.example.roots_d01.extra.NEW_JOURNEY_START_TIME";
+
+
 
     final int STILL_CONFIDENCE_THRESHOLD = 85;
     @Override
@@ -790,12 +796,24 @@ public class LocationTrackingService extends Service {
             Log.d(TAG_LATCH, "Cancelled latch timeout on destroy.");
         }
 
-
+        long lastSegmentStartTime = -1;
+        if (polylineManager != null && polylineManager.getCurrentSegmentPoints() != null && !polylineManager.getCurrentSegmentPoints().isEmpty()) {
+            // Get the start time *before* finalizing, as finalize clears the current segment
+            lastSegmentStartTime = polylineManager.getCurrentSegmentPoints().get(0).timestamp;
+        }
 
         // Finalize last segment via manager BEFORE stopping executor
         if (polylineManager != null) {
             Log.d(TAG, "Finalizing last segment in Service onDestroy...");
             polylineManager.finalizeAndSaveCurrentSegment();
+
+            // After saving, send the broadcast
+            Intent newJourneyIntent = new Intent(ACTION_NEW_JOURNEY_SAVED);
+            if (lastSegmentStartTime != -1) {
+                newJourneyIntent.putExtra(EXTRA_NEW_JOURNEY_START_TIME, lastSegmentStartTime);
+            }
+            LocalBroadcastManager.getInstance(this).sendBroadcast(newJourneyIntent);
+            Log.i(TAG, "Broadcast ACTION_NEW_JOURNEY_SAVED sent from onDestroy.");
         } else {
             Log.w(TAG,"PolylineManager was null in onDestroy.");
         }
@@ -812,16 +830,34 @@ public class LocationTrackingService extends Service {
     }
 
     private void stopAutoTracking() {
-        Log.w("StateSyncDebug", "SERVICE: stopAutoTracking called. isAutoTrackingCurrentlyActive=" + isAutoTrackingCurrentlyActive);
+        Log.w(TAG_SYNC, "SERVICE: stopAutoTracking called. isAutoTrackingCurrentlyActive=" + isAutoTrackingCurrentlyActive);
         if (!isAutoTrackingCurrentlyActive) return;
-        isAutoTrackingCurrentlyActive = false;
-        stopRunnable = null;
 
-        clearLatchAndTimeout();
+        long lastSegmentStartTime = -1; // To store the start time of the segment being finalized
+        if (polylineManager != null && polylineManager.getCurrentSegmentPoints() != null && !polylineManager.getCurrentSegmentPoints().isEmpty()) {
+            lastSegmentStartTime = polylineManager.getCurrentSegmentPoints().get(0).timestamp;
+        }
+
+        isAutoTrackingCurrentlyActive = false;
+        stopRunnable = null; // Clear the runnable
+
+        clearLatchAndTimeout(); // Clear any active latch or timeout
 
         stopTrackingUpdates(); // Stop FLP updates
-        if (polylineManager != null) polylineManager.finalizeAndSaveCurrentSegment();
-        notifyTrackingStateChange(false);
+
+        if (polylineManager != null) {
+            polylineManager.finalizeAndSaveCurrentSegment();
+            Log.d(TAG, "stopAutoTracking: Called finalizeAndSaveCurrentSegment.");
+
+            // After saving, send the broadcast
+            Intent newJourneyIntent = new Intent(ACTION_NEW_JOURNEY_SAVED);
+            if (lastSegmentStartTime != -1) {
+                newJourneyIntent.putExtra(EXTRA_NEW_JOURNEY_START_TIME, lastSegmentStartTime);
+            }
+            LocalBroadcastManager.getInstance(this).sendBroadcast(newJourneyIntent);
+            Log.i(TAG, "Broadcast ACTION_NEW_JOURNEY_SAVED sent from stopAutoTracking.");
+        }
+        notifyTrackingStateChange(false); // Notify that general tracking has stopped
     }
 
 

@@ -163,9 +163,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private ActivityResultLauncher<Intent> settingsLauncher;
     private LocationTrackingService mService;
     private boolean mBound = false;
-    private static final String STATUS_CHECKING_ACTIVITY = "Checking Activity...";
     private AlertDialog gpsStatusDialog = null;
-    private static final String STATE_IS_TRACKING = "IS_TRACKING_ACTIVE";
     private static final String STATE_OVERRIDE_MODE = "OVERRIDE_MODE";
     private List<JourneyDetails> displayedJourneyDetailsList = new ArrayList<>(); // Stores details for displayed journeys
     private CardView journeyDetailsPanel;
@@ -241,7 +239,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private List<LatLng> currentTrackLatLngs = new ArrayList<>(); // Maintain current points locally
 
 
-    private boolean filterAllActive = true; // Controls the "All" chip state
     private boolean filterWalkActive = true;
     private boolean filterBikeActive = true;
     private boolean filterVehicleActive = true;
@@ -1212,6 +1209,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         filter.addAction(LocationTrackingService.ACTION_TRACKING_STATE_CHANGED);
         filter.addAction(LocationTrackingService.ACTION_ACTIVITY_DETECTED);
         filter.addAction(MainActivity.ACTION_ALL_ACTIVITIES_UPDATE);
+        filter.addAction(LocationTrackingService.ACTION_NEW_JOURNEY_SAVED);
         LocalBroadcastManager.getInstance(this).registerReceiver(locationReceiver, filter);
         Log.d(TAG, "Location BroadcastReceiver Registered");
 
@@ -1946,6 +1944,27 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                     Log.d("MainActivityReceiver", "Skipping state update - Activity state already matches service state (" + MainActivity.this.isTrackingActive + ")");
                 }
 
+            }
+
+            if (LocationTrackingService.ACTION_NEW_JOURNEY_SAVED.equals(action)) {
+                Log.i(TAG, "Received ACTION_NEW_JOURNEY_SAVED from service. Triggering journey data reload.");
+
+                // Set the flag to indicate data needs a refresh
+                isJourneyDataLoaded = false;
+
+                // Ensure permissions are still granted before attempting to load
+                if (journeyManager != null &&
+                        ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+
+                    Log.d(TAG, "Calling journeyManager.loadAllPolylineData() due to new journey saved.");
+                    journeyManager.loadAllPolylineData(); // This will eventually call onJourneysLoaded()
+                } else {
+                    Log.w(TAG, "Cannot reload journeys immediately on NEW_JOURNEY_SAVED: " +
+                            "journeyManager is " + (journeyManager == null ? "null" : "not null") +
+                            ", permission is " + (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ? "granted" : "missing") + ".");
+                    // The data will likely be reloaded on the next onResume or after a permission grant
+                    // if it was revoked.
+                }
             }
             // --- Handle Detected Activity (for UI feedback when inactive) ---
             else if (LocationTrackingService.ACTION_ACTIVITY_DETECTED.equals(action)) {
