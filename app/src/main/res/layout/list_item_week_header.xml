@@ -1,0 +1,18 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="12dp"  android:paddingBottom="12dp" android:background="?attr/colorSurfaceContainerHighest"> <TextView
+    android:id="@+id/tvWeekDateHeader"
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_weight="1"
+    android:textAppearance="?attr/textAppearanceTitleMedium" android:textColor="?attr/colorPrimary"
+    android:textStyle="bold"
+    tools:text="Week of May 12, 2025" />
+
+</LinearLayout>

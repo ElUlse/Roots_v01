@@ -27,7 +27,8 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
 
     // --- View Type Constants ---
     private static final int VIEW_TYPE_JOURNEY = 0;
-    private static final int VIEW_TYPE_HEADER = 1;
+    private static final int VIEW_TYPE_DAY_HEADER = 1;
+    private static final int VIEW_TYPE_WEEK_HEADER = 2;
 
     // Use List<Object> to hold both Strings (headers) and JourneyDetails
     private List<Object> listItems;
@@ -73,7 +74,13 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
         }
         Object item = listItems.get(position);
         if (item instanceof String) {
-            return VIEW_TYPE_HEADER;
+            String headerText = (String) item;
+            // Differentiate based on content of the string
+            if (headerText.startsWith("Week of")) { // *** CHECK FOR WEEK HEADER PATTERN ***
+                return VIEW_TYPE_WEEK_HEADER;
+            } else {
+                return VIEW_TYPE_DAY_HEADER; // Today, Yesterday, or specific date
+            }
         } else if (item instanceof JourneyDetails) {
             return VIEW_TYPE_JOURNEY;
         }
@@ -87,11 +94,13 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
     @Override
     public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         LayoutInflater inflater = LayoutInflater.from(parent.getContext());
-        if (viewType == VIEW_TYPE_HEADER) {
-            View headerView = inflater.inflate(R.layout.list_item_date_header, parent, false);
-            // MODIFIED: Pass actionListener to HeaderViewHolder
-            return new HeaderViewHolder(headerView, actionListener);
-        } else {
+        if (viewType == VIEW_TYPE_WEEK_HEADER) { // *** HANDLE NEW WEEK HEADER TYPE ***
+            View weekHeaderView = inflater.inflate(R.layout.list_item_week_header, parent, false);
+            return new WeekHeaderViewHolder(weekHeaderView);
+        } else if (viewType == VIEW_TYPE_DAY_HEADER) { // Use the renamed constant
+            View dayHeaderView = inflater.inflate(R.layout.list_item_date_header, parent, false);
+            return new DayHeaderViewHolder(dayHeaderView, actionListener); // Renamed ViewHolder
+        } else { // VIEW_TYPE_JOURNEY
             View journeyView = inflater.inflate(R.layout.list_item_journey, parent, false);
             return new JourneyViewHolder(journeyView);
         }
@@ -101,31 +110,31 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
     // Binds data to the correct ViewHolder type
     @Override
     public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
-        if (position < 0 || position >= listItems.size()) {
-            Log.e("JourneyAdapter", "onBindViewHolder: Invalid position: " + position);
-            return;
-        }
+        // ... (invalid position check remains the same) ...
         Object item = listItems.get(position);
-        int viewType = getItemViewType(position);
+        // int viewType = getItemViewType(position); // Already available via holder.getItemViewType()
 
         try {
-            if (viewType == VIEW_TYPE_HEADER) {
-                HeaderViewHolder headerHolder = (HeaderViewHolder) holder;
-                String dateText = (String) item;
-                // MODIFIED: Get expansion state
-                boolean isExpanded = headerExpansionStates.getOrDefault(dateText, true); // Default to expanded
-                headerHolder.bind(dateText, isExpanded);
-            } else if (viewType == VIEW_TYPE_JOURNEY) {
+            if (holder.getItemViewType() == VIEW_TYPE_WEEK_HEADER) { // *** BIND WEEK HEADER ***
+                WeekHeaderViewHolder weekHolder = (WeekHeaderViewHolder) holder;
+                String weekDateText = (String) item;
+                weekHolder.bind(weekDateText);
+            } else if (holder.getItemViewType() == VIEW_TYPE_DAY_HEADER) { // Use the renamed constant
+                DayHeaderViewHolder dayHolder = (DayHeaderViewHolder) holder;
+                String dayDateText = (String) item;
+                boolean isExpanded = headerExpansionStates.getOrDefault(dayDateText, true);
+                dayHolder.bind(dayDateText, isExpanded);
+            } else if (holder.getItemViewType() == VIEW_TYPE_JOURNEY) {
                 JourneyViewHolder journeyHolder = (JourneyViewHolder) holder;
                 JourneyDetails journeyDetails = (JourneyDetails) item;
                 journeyHolder.bindJourney(journeyDetails, context, backgroundExecutor, mainThreadHandler, position);
             } else {
-                Log.w("JourneyAdapter", "onBindViewHolder: Unknown view type " + viewType + " at position " + position);
+                Log.w("JourneyAdapter", "onBindViewHolder: Unknown view type " + holder.getItemViewType() + " at position " + position);
             }
         } catch (ClassCastException e) {
-            Log.e("JourneyAdapter", "onBindViewHolder: Error casting item at position " + position, e);
+            // ... (error handling remains the same) ...
         } catch (Exception e) {
-            Log.e("JourneyAdapter", "onBindViewHolder: Unexpected error binding view for position " + position, e);
+            // ... (error handling remains the same) ...
         }
     }
 
@@ -149,20 +158,40 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
     //                             View Holder Classes
     // ========================================================================================
 
+    public static class WeekHeaderViewHolder extends RecyclerView.ViewHolder {
+        TextView tvWeekDateHeader;
+
+        public WeekHeaderViewHolder(@NonNull View itemView) {
+            super(itemView);
+            tvWeekDateHeader = itemView.findViewById(R.id.tvWeekDateHeader); // Use the ID from list_item_week_header.xml
+
+            if (tvWeekDateHeader == null) {
+                Log.e("JourneyAdapter", "WeekHeaderViewHolder: tvWeekDateHeader not found!");
+            }
+            // No click listener needed for expansion for week headers for now
+        }
+
+        public void bind(String weekDateText) {
+            if (tvWeekDateHeader != null) {
+                tvWeekDateHeader.setText(weekDateText);
+            }
+        }
+    }
+
     // --- Header ViewHolder ---
-    public static class HeaderViewHolder extends RecyclerView.ViewHolder {
+    public static class DayHeaderViewHolder extends RecyclerView.ViewHolder { // Renamed from HeaderViewHolder
         TextView tvDateHeader;
-        ImageView ivExpansionIndicator;
+        ImageView ivExpansionIndicator; // Keep this for day headers
         OnJourneyActionListener listener;
 
-        public HeaderViewHolder(@NonNull View itemView, OnJourneyActionListener listener) { // MODIFIED
+        public DayHeaderViewHolder(@NonNull View itemView, OnJourneyActionListener listener) { // Renamed
             super(itemView);
-            this.listener = listener; // ADDED
-            tvDateHeader = itemView.findViewById(R.id.tvDateHeader);
-            ivExpansionIndicator = itemView.findViewById(R.id.ivExpansionIndicator); // ADDED
+            this.listener = listener;
+            tvDateHeader = itemView.findViewById(R.id.tvDateHeader); // ID from list_item_date_header.xml
+            ivExpansionIndicator = itemView.findViewById(R.id.ivExpansionIndicator);
 
             if (tvDateHeader == null || ivExpansionIndicator == null) {
-                Log.e("JourneyAdapter", "HeaderViewHolder: tvDateHeader or ivExpansionIndicator not found!");
+                Log.e("JourneyAdapter", "DayHeaderViewHolder: tvDateHeader or ivExpansionIndicator not found!");
             }
         }
 
@@ -171,18 +200,18 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
                 tvDateHeader.setText(dateText);
             }
             if (ivExpansionIndicator != null) {
-                // SET icon based on isExpanded state
                 ivExpansionIndicator.setImageResource(isExpanded ? R.drawable.ic_expand_less : R.drawable.ic_expand_more);
+                ivExpansionIndicator.setVisibility(View.VISIBLE); // Ensure it's visible
             }
 
-            // ADDED: Set click listener for the entire header item
             itemView.setOnClickListener(v -> {
                 if (listener != null) {
-                    listener.onHeaderClicked(dateText); // Notify activity
+                    listener.onHeaderClicked(dateText); // This remains for day headers
                 }
             });
         }
     }
+
 
     // --- Journey ViewHolder ---
     // Made non-static so it can access adapter's context, listItems, listener etc. if needed

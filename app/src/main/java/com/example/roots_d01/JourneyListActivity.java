@@ -162,93 +162,119 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
         }
     }
 
-    // MODIFIED: Added boolean scrollToDefaultSection parameter
-    private void displayGroupedJourneys(List<JourneyDetails> loadedSegmentDetails, boolean scrollToDefaultSection) {
-        if (loadedSegmentDetails == null) {
-            loadedSegmentDetails = new ArrayList<>();
+    private void displayGroupedJourneys(List<JourneyDetails> loadedJourneys, boolean scrollToDefaultSection) {
+        Log.d(TAG, "displayGroupedJourneys: Received " + (loadedJourneys != null ? loadedJourneys.size() : "null") + " journeys. isInitialLoad: " + isInitialLoad + ", scrollToDefault: " + scrollToDefaultSection);
+
+        if (loadedJourneys == null) {
+            loadedJourneys = new ArrayList<>();
         }
-        Log.d(TAG, "displayGroupedJourneys: Received " + loadedSegmentDetails.size() + " segments (oldest first). isInitialLoad: " + isInitialLoad + ", scrollToDefault: " + scrollToDefaultSection);
 
         List<Object> listItemsWithHeaders = new ArrayList<>();
-        String lastHeaderDateString = "";
-        String todayHeaderString = "";
-        String mostRecentDayHeaderString = "";
+        String lastWeekHeaderKey = ""; // To track the last inserted "Week of..." header
+        String lastDayHeaderKey = "";   // To track the last inserted "Today/Yesterday/Date" header
 
-        Calendar cal = Calendar.getInstance();
+        Calendar journeyCal = Calendar.getInstance();
         Calendar todayCal = Calendar.getInstance();
         Calendar yesterdayCal = Calendar.getInstance();
         yesterdayCal.add(Calendar.DATE, -1);
+
         SimpleDateFormat dayOfWeekFormat = new SimpleDateFormat("EEEE", Locale.getDefault());
-        SimpleDateFormat headerDateFormat = new SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault());
+        SimpleDateFormat dayHeaderFormat = new SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()); // Full date for older days
+        SimpleDateFormat weekHeaderFormat = new SimpleDateFormat("'Week of' MMMM d, yyyy", Locale.getDefault()); // Format for week start
 
-        if (isInitialLoad) { // This block now only sets default expansion states
+        String todayDayHeaderKeyForExpansion = "";
+        String mostRecentDayHeaderKeyForExpansion = "";
+
+        if (isInitialLoad) {
             headerExpansionStates.clear();
-            List<String> uniqueHeadersInOrder = new ArrayList<>();
+            List<String> uniqueDayHeadersInOrder = new ArrayList<>();
+            Calendar tempCal = Calendar.getInstance();
 
-            for (JourneyDetails segmentDetails : loadedSegmentDetails) {
-                if (segmentDetails == null || segmentDetails.startTimeMs <= 0) continue;
-                cal.setTimeInMillis(segmentDetails.startTimeMs);
-                String currentHeaderKey;
-                if (cal.get(Calendar.YEAR) == todayCal.get(Calendar.YEAR) && cal.get(Calendar.DAY_OF_YEAR) == todayCal.get(Calendar.DAY_OF_YEAR)) {
-                    currentHeaderKey = "Today, " + dayOfWeekFormat.format(cal.getTime());
-                    if (todayHeaderString.isEmpty()) {
-                        todayHeaderString = currentHeaderKey;
+            for (JourneyDetails journey : loadedJourneys) {
+                if (journey == null || journey.startTimeMs <= 0) continue;
+                tempCal.setTimeInMillis(journey.startTimeMs);
+                String currentDayDisplayHeader;
+
+                if (isSameDay(tempCal, todayCal)) {
+                    currentDayDisplayHeader = "Today, " + dayOfWeekFormat.format(tempCal.getTime());
+                    if (todayDayHeaderKeyForExpansion.isEmpty()) {
+                        todayDayHeaderKeyForExpansion = currentDayDisplayHeader;
                     }
-                } else if (cal.get(Calendar.YEAR) == yesterdayCal.get(Calendar.YEAR) && cal.get(Calendar.DAY_OF_YEAR) == yesterdayCal.get(Calendar.DAY_OF_YEAR)) {
-                    currentHeaderKey = "Yesterday, " + dayOfWeekFormat.format(cal.getTime());
+                } else if (isSameDay(tempCal, yesterdayCal)) {
+                    currentDayDisplayHeader = "Yesterday, " + dayOfWeekFormat.format(tempCal.getTime());
                 } else {
-                    currentHeaderKey = headerDateFormat.format(cal.getTime());
+                    currentDayDisplayHeader = dayHeaderFormat.format(tempCal.getTime());
                 }
-                if (!uniqueHeadersInOrder.contains(currentHeaderKey)) {
-                    uniqueHeadersInOrder.add(currentHeaderKey);
+                if (!uniqueDayHeadersInOrder.contains(currentDayDisplayHeader)) {
+                    uniqueDayHeadersInOrder.add(currentDayDisplayHeader);
                 }
             }
 
-            if (!uniqueHeadersInOrder.isEmpty()) {
-                mostRecentDayHeaderString = uniqueHeadersInOrder.get(uniqueHeadersInOrder.size() - 1);
+            if (!uniqueDayHeadersInOrder.isEmpty()) {
+                mostRecentDayHeaderKeyForExpansion = uniqueDayHeadersInOrder.get(uniqueDayHeadersInOrder.size() - 1);
             }
-
-            String headerToExpand = !todayHeaderString.isEmpty() ? todayHeaderString : mostRecentDayHeaderString;
-
-            for (String headerKey : uniqueHeadersInOrder) {
-                headerExpansionStates.put(headerKey, headerKey.equals(headerToExpand));
+            String dayHeaderToExpand = !todayDayHeaderKeyForExpansion.isEmpty() ? todayDayHeaderKeyForExpansion : mostRecentDayHeaderKeyForExpansion;
+            for (String dayHeaderKey : uniqueDayHeadersInOrder) {
+                headerExpansionStates.put(dayHeaderKey, dayHeaderKey.equals(dayHeaderToExpand));
             }
-            if (uniqueHeadersInOrder.isEmpty()){
-                Log.d(TAG, "No journeys, so no headers to set expansion state for.");
-            } else if (!headerToExpand.isEmpty()) {
-                Log.d(TAG, "Initial expansion: '" + headerToExpand + "' will be expanded.");
-            } else {
-                Log.w(TAG, "Initial expansion: No specific header identified for expansion (list might be empty or logic error).");
+            if (!dayHeaderToExpand.isEmpty()) {
+                Log.d(TAG, "Initial expansion: Day header '" + dayHeaderToExpand + "' will be expanded.");
             }
         }
 
-        for (JourneyDetails segmentDetails : loadedSegmentDetails) {
-            if (segmentDetails == null || segmentDetails.startTimeMs <= 0) continue;
+        for (JourneyDetails journey : loadedJourneys) {
+            if (journey == null || journey.startTimeMs <= 0) continue;
 
-            cal.setTimeInMillis(segmentDetails.startTimeMs);
-            String currentDateHeaderKey;
-            if (cal.get(Calendar.YEAR) == todayCal.get(Calendar.YEAR) && cal.get(Calendar.DAY_OF_YEAR) == todayCal.get(Calendar.DAY_OF_YEAR)) {
-                currentDateHeaderKey = "Today, " + dayOfWeekFormat.format(cal.getTime());
-            } else if (cal.get(Calendar.YEAR) == yesterdayCal.get(Calendar.YEAR) && cal.get(Calendar.DAY_OF_YEAR) == yesterdayCal.get(Calendar.DAY_OF_YEAR)) {
-                currentDateHeaderKey = "Yesterday, " + dayOfWeekFormat.format(cal.getTime());
+            journeyCal.setTimeInMillis(journey.startTimeMs);
+
+            // --- Determine Week Header ---
+            Calendar weekStartCal = (Calendar) journeyCal.clone();
+            weekStartCal.setFirstDayOfWeek(Calendar.MONDAY); // Set Monday as the first day of the week
+            weekStartCal.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY);
+            // Normalize to the beginning of the day for a consistent key
+            weekStartCal.set(Calendar.HOUR_OF_DAY, 0);
+            weekStartCal.set(Calendar.MINUTE, 0);
+            weekStartCal.set(Calendar.SECOND, 0);
+            weekStartCal.set(Calendar.MILLISECOND, 0);
+            String currentWeekHeaderKey = weekHeaderFormat.format(weekStartCal.getTime());
+
+            // --- Determine Day Header (for display and expansion key) ---
+            String currentDayDisplayHeader;
+            if (isSameDay(journeyCal, todayCal)) {
+                currentDayDisplayHeader = "Today, " + dayOfWeekFormat.format(journeyCal.getTime());
+            } else if (isSameDay(journeyCal, yesterdayCal)) {
+                currentDayDisplayHeader = "Yesterday, " + dayOfWeekFormat.format(journeyCal.getTime());
             } else {
-                currentDateHeaderKey = headerDateFormat.format(cal.getTime());
+                currentDayDisplayHeader = dayHeaderFormat.format(journeyCal.getTime());
+            }
+            // The key for expansion state map is the display string of the day header
+            String currentDayExpansionKey = currentDayDisplayHeader;
+
+            // --- Add Week Header if it's a new week ---
+            if (!currentWeekHeaderKey.equals(lastWeekHeaderKey)) {
+                listItemsWithHeaders.add(currentWeekHeaderKey);
+                lastWeekHeaderKey = currentWeekHeaderKey;
+                lastDayHeaderKey = ""; // Reset day header as we are in a new week section
+                Log.d(TAG, "Added Week Header: " + currentWeekHeaderKey);
             }
 
-            if (!currentDateHeaderKey.equals(lastHeaderDateString)) {
-                listItemsWithHeaders.add(currentDateHeaderKey);
-                lastHeaderDateString = currentDateHeaderKey;
-                headerExpansionStates.putIfAbsent(currentDateHeaderKey, false);
-                Log.d(TAG, "Adding header to adapter list: " + currentDateHeaderKey + ", Expanded: " + headerExpansionStates.get(currentDateHeaderKey));
+            // --- Add Day Header if it's a new day (and not already added for this week) ---
+            if (!currentDayExpansionKey.equals(lastDayHeaderKey)) {
+                listItemsWithHeaders.add(currentDayDisplayHeader);
+                lastDayHeaderKey = currentDayExpansionKey;
+                // Ensure expansion state exists, default to false if not set during initialLoad
+                headerExpansionStates.putIfAbsent(currentDayExpansionKey, false);
+                Log.d(TAG, "Added Day Header: " + currentDayDisplayHeader + ", Expanded: " + headerExpansionStates.get(currentDayExpansionKey));
             }
 
-            Boolean isHeaderExpandedCurrent = headerExpansionStates.get(currentDateHeaderKey); // Renamed to avoid conflict
-            if (isHeaderExpandedCurrent != null && isHeaderExpandedCurrent) {
-                listItemsWithHeaders.add(segmentDetails);
+            // --- Add Journey Item if its Day Header is expanded ---
+            Boolean isDayHeaderExpanded = headerExpansionStates.get(currentDayExpansionKey);
+            if (isDayHeaderExpanded != null && isDayHeaderExpanded) {
+                listItemsWithHeaders.add(journey);
             }
         }
 
-        Log.i(TAG, "Finished grouping. List items with headers size: " + listItemsWithHeaders.size());
+        Log.i(TAG, "Finished grouping with weekly headers. List items with headers size: " + listItemsWithHeaders.size());
 
         if (journeyAdapter != null) {
             journeyAdapter.updateJourneys(listItemsWithHeaders, headerExpansionStates);
@@ -260,46 +286,44 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
                 emptyListTextView.setVisibility(View.GONE);
                 journeyRecyclerView.setVisibility(View.VISIBLE);
 
-                // MODIFIED: Conditional scrolling
                 if (scrollToDefaultSection) {
-                    final String finalTargetScrollHeader = !todayHeaderString.isEmpty() ? todayHeaderString : mostRecentDayHeaderString;
-                    final String finalMostRecentDayHeaderString = mostRecentDayHeaderString; // Already effectively final if not reassigned
-                    final String finalTodayHeaderString = todayHeaderString; // Already effectively final
-                    final List<Object> finalListItemsForScroll = new ArrayList<>(listItemsWithHeaders);
-
+                    final String finalTargetScrollDayHeader = !todayDayHeaderKeyForExpansion.isEmpty() ? todayDayHeaderKeyForExpansion : mostRecentDayHeaderKeyForExpansion;
                     int targetScrollIndex = -1;
 
-                    if (!finalTargetScrollHeader.isEmpty()) {
-                        for (int i = 0; i < finalListItemsForScroll.size(); i++) {
-                            Object item = finalListItemsForScroll.get(i);
-                            if (item instanceof String && item.equals(finalTargetScrollHeader)) {
+                    if (!finalTargetScrollDayHeader.isEmpty()) {
+                        for (int i = 0; i < listItemsWithHeaders.size(); i++) {
+                            Object item = listItemsWithHeaders.get(i);
+                            if (item instanceof String && item.equals(finalTargetScrollDayHeader)) {
                                 targetScrollIndex = i;
                                 break;
                             }
                         }
-                    } else if (!finalListItemsForScroll.isEmpty() && finalListItemsForScroll.get(0) instanceof String) {
-                        targetScrollIndex = 0;
-                        Log.w(TAG, "No specific scroll target (Today/MostRecent), will scroll to top if list not empty.");
+                    } else if (!listItemsWithHeaders.isEmpty() && listItemsWithHeaders.get(0) instanceof String) {
+                        targetScrollIndex = 0; // Scroll to the first header if no specific day target
                     }
 
-                    Log.d(TAG, "Attempting to scroll (scrollToDefaultSection=true). TargetHeader: '" + finalTargetScrollHeader + "', TargetIndex: " + targetScrollIndex);
+                    Log.d(TAG, "Attempting to scroll (scrollToDefaultSection=true). TargetDayHeader: '" + finalTargetScrollDayHeader + "', TargetIndex: " + targetScrollIndex);
 
                     if (targetScrollIndex != -1) {
                         LinearLayoutManager layoutManager = (LinearLayoutManager) journeyRecyclerView.getLayoutManager();
                         if (layoutManager != null) {
                             final int finalScrollIndex = targetScrollIndex;
+                            // Determine if we should scroll to the very end (if the target is the most recent and expanded)
+                            boolean scrollToVeryEnd = finalTargetScrollDayHeader.equals(mostRecentDayHeaderKeyForExpansion) &&
+                                    headerExpansionStates.getOrDefault(mostRecentDayHeaderKeyForExpansion, false) &&
+                                    !listItemsWithHeaders.isEmpty();
+
                             journeyRecyclerView.postDelayed(() -> {
                                 try {
                                     int currentItemCount = layoutManager.getItemCount();
-                                    Log.d(TAG, "Inside postDelayed for scrolling. finalScrollIndex: " + finalScrollIndex + ", currentItemCount: " + currentItemCount);
                                     if (finalScrollIndex < currentItemCount) {
-                                        boolean isTargetNearEndLambda = (finalListItemsForScroll.size() - finalScrollIndex) < 5;
-                                        if (finalTargetScrollHeader.equals(finalMostRecentDayHeaderString) || finalTargetScrollHeader.equals(finalTodayHeaderString) || isTargetNearEndLambda) {
-                                            layoutManager.scrollToPosition(finalListItemsForScroll.size() - 1);
-                                            Log.i(TAG, "Posted and executed DELAYED scroll to END of list (target header: " + finalTargetScrollHeader + ").");
+                                        if (scrollToVeryEnd) {
+                                            // Scroll to the last item in the adapter's list
+                                            layoutManager.scrollToPosition(listItemsWithHeaders.size() - 1);
+                                            Log.i(TAG, "Posted DELAYED scroll to END of list (target: " + finalTargetScrollDayHeader + ").");
                                         } else {
                                             layoutManager.scrollToPositionWithOffset(finalScrollIndex, 0);
-                                            Log.i(TAG, "Posted and executed DELAYED scroll to target header at index: " + finalScrollIndex);
+                                            Log.i(TAG, "Posted DELAYED scroll to target day header at index: " + finalScrollIndex);
                                         }
                                     } else {
                                         Log.w(TAG, "Scroll cancelled: finalScrollIndex (" + finalScrollIndex + ") is out of bounds for currentItemCount (" + currentItemCount + ").");
@@ -307,23 +331,26 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
                                 } catch (Exception e) {
                                     Log.e(TAG, "Exception during delayed scroll execution", e);
                                 }
-                            }, 150);
-                        } else {
-                            Log.e(TAG, "LayoutManager is null, cannot scroll.");
+                            }, 150); // Keep delay for layout to settle
                         }
-                    } else {
-                        Log.d(TAG, "No target header found for scrolling or list is empty (scrollToDefaultSection=true).");
                     }
-                } else {
-                    Log.d(TAG, "Not scrolling to default section (scrollToDefaultSection=false).");
                 }
             }
         } else {
             Log.e(TAG, "displayGroupedJourneys: journeyAdapter is null! Cannot display list.");
         }
-        if (scrollToDefaultSection) { // Only reset isInitialLoad if we performed the initial default setup
+
+        if (scrollToDefaultSection) {
             isInitialLoad = false;
         }
+    }
+
+    private boolean isSameDay(Calendar cal1, Calendar cal2) {
+        if (cal1 == null || cal2 == null) {
+            return false;
+        }
+        return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR) &&
+                cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR);
     }
 
     public void onHeaderClicked(String headerDate) {
