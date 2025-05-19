@@ -47,6 +47,7 @@ android {
 }
 
 dependencies {
+    implementation("androidx.recyclerview:recyclerview:1.3.2")
     // MapLibre dependency
     implementation("org.maplibre.gl:android-sdk:11.8.6")
 
