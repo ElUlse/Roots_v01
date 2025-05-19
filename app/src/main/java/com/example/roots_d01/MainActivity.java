@@ -1360,22 +1360,27 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     }
 
     @Override
-    @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
-    // Add annotation if needed by called methods
+    @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION) // Keep this annotation
     public void onLocationPermissionGranted() {
-        Log.d(TAG, "Listener: onLocationPermissionGranted");
-        final String TAG_LOAD = "JourneyDisplay"; // Use this tag for consistency
-        startLocationService(); // Safe to start service now
-        updateMapToLastKnownLocation(); // Update map state now
+        Log.d(TAG, "Listener: onLocationPermissionGranted (Foreground Location GRANTED)");
+        // Original actions for foreground location grant:
+        startLocationService();
+        updateMapToLastKnownLocation();
+        requestActivityUpdatesPermission(); // Handles AR permission
 
-        // Trigger the separate Activity Recognition check AFTER location is granted
-        requestActivityUpdatesPermission();
+        // *** CORRECTED CALL: Pass 'this' (MainActivity instance) as the Activity argument ***
+        if (permissionHelper != null) {
+            Log.d(TAG, "Foreground location granted, now checking for background location permission...");
+            permissionHelper.checkAndRequestBackgroundLocationPermissionIfNeeded(this); // Pass 'this'
+        } else {
+            Log.e(TAG, "permissionHelper is null in onLocationPermissionGranted, cannot check background location.");
+        }
 
-        Log.i(TAG_LOAD, "Location permission granted. Triggering journeyManager.loadAllPolylineData()."); // <-- MODIFY/ADD Log
-        if (!isJourneyDataLoaded) { // <<< Check the flag
-            Log.i(TAG_LOAD, "Location permission granted and journey data not loaded yet. Triggering journeyManager.loadAllPolylineData().");
+        // This part remains the same
+        Log.i(TAG_LOAD, "Location permission granted. Triggering journeyManager.loadAllPolylineData().");
+        if (!isJourneyDataLoaded) {
             if (journeyManager != null) {
-                journeyManager.loadAllPolylineData(); // Call load only if flag is false
+                journeyManager.loadAllPolylineData();
             } else {
                 Log.e(TAG_LOAD, "onLocationPermissionGranted: journeyManager is null, cannot load data.");
             }

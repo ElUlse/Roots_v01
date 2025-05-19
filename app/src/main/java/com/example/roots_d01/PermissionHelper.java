@@ -2,7 +2,10 @@ package com.example.roots_d01;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.util.Log;
 import android.widget.Toast; // Import Toast
@@ -37,7 +40,7 @@ public class PermissionHelper {
 
     // Constructor
     public PermissionHelper(@NonNull Activity activity, @NonNull UiUpdater uiUpdater, @NonNull PermissionResultListener listener) {
-        this.activity = activity;
+        this.activity = activity; // Activity is passed in constructor and stored
         this.uiUpdater = uiUpdater;
         this.listener = listener;
     }
@@ -68,6 +71,30 @@ public class PermissionHelper {
         }
     }
     // --- End Method: checkAndRequestBasePermissions ---
+
+    public void checkAndRequestBackgroundLocationPermissionIfNeeded(Activity activity) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { // Android 10+
+            if (ActivityCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                // Explain to the user why background location is needed
+                new AlertDialog.Builder(activity)
+                        .setTitle("Background Location Needed")
+                        .setMessage("For continuous journey recording even when the app is in the background, please grant 'Allow all the time' location access in the upcoming permission settings.")
+                        .setPositiveButton("Open Settings", (dialog, which) -> {
+                            // Option 1: Request directly (might show system dialog or take to settings sub-page)
+                            // ActivityCompat.requestPermissions(activity, new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION}, BACKGROUND_LOCATION_REQUEST_CODE);
+
+                            // Option 2: More reliably, take them to app settings page
+                            Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                            Uri uri = Uri.fromParts("package", activity.getPackageName(), null);
+                            intent.setData(uri);
+                            activity.startActivity(intent);
+                            Toast.makeText(activity, "Please find Permissions and set Location to 'Allow all the time'.", Toast.LENGTH_LONG).show();
+                        })
+                        .setNegativeButton("Later", null)
+                        .show();
+            }
+        }
+    }
 
     // --- Method: handlePermissionsResult (Handles logic from MainActivity.onRequestPermissionsResult) ---
     public void handlePermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
