@@ -167,7 +167,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private static final String STATE_OVERRIDE_MODE = "OVERRIDE_MODE";
     private List<JourneyDetails> displayedJourneyDetailsList = new ArrayList<>(); // Stores details for displayed journeys
     private CardView journeyDetailsPanel;
-    private TextView tvBottomJourneyMode;
     private TextView tvBottomJourneyStartTime;
     private TextView tvBottomJourneyEndTime;
     private TextView tvBottomJourneyDuration;
@@ -185,7 +184,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     // --- Highlighting Style ---
     private final int HIGHLIGHT_COLOR = Color.CYAN;
     private final float HIGHLIGHT_WIDTH_INCREASE = 6f; // How much wider to make the line
-    private TextView tvBottomJourneyModeBreakdown;
     private Button btnDeleteJourney;
 
     // --- Valhalla / Retrofit Variables ---
@@ -524,7 +522,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             manualStopFab = findViewById(R.id.manualStopFab);
             Log.d("FAB_DEBUG", "onCreate: findViewById(R.id.manualStopFab) result is " + (manualStopFab == null ? "NULL" : "NOT NULL")); // <-- ADD THIS LINE
             startManualRecordButton = findViewById(R.id.startManualRecordButton);
-            tvBottomJourneyMode = findViewById(R.id.tv_bottom_journey_mode);
             tvBottomJourneyStartTime = findViewById(R.id.tv_bottom_journey_start_time);
             tvBottomJourneyEndTime = findViewById(R.id.tv_bottom_journey_end_time);
             tvBottomJourneyDuration = findViewById(R.id.tv_bottom_journey_duration);
@@ -534,7 +531,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             btnNextJourney = findViewById(R.id.btnNextJourney);
             btnCloseDetailsPanel = findViewById(R.id.btnCloseDetailsPanel);
             journeyDetailsPanel = findViewById(R.id.journeyDetailsPanel);
-            tvBottomJourneyMode = findViewById(R.id.tv_bottom_journey_mode);
             tvBottomJourneyStartTime = findViewById(R.id.tv_bottom_journey_start_time);
             tvBottomJourneyEndTime = findViewById(R.id.tv_bottom_journey_end_time);
             tvBottomJourneyDuration = findViewById(R.id.tv_bottom_journey_duration);
@@ -542,7 +538,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             btnPrevJourney = findViewById(R.id.btnPrevJourney);
             btnNextJourney = findViewById(R.id.btnNextJourney);
             btnCloseDetailsPanel = findViewById(R.id.btnCloseDetailsPanel);
-            tvBottomJourneyModeBreakdown = findViewById(R.id.tv_bottom_journey_mode_breakdown);
             tvBottomJourneyName = findViewById(R.id.tv_bottom_journey_name);
             btnEditJourneyName = findViewById(R.id.btnEditJourneyName);
             setNorthButton = findViewById(R.id.setNorthButton);
@@ -609,14 +604,9 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                 Log.e(TAG, "onCreate: journeyDetailsPanel is NULL after findViewById!");
 
 
-            if (tvBottomJourneyModeBreakdown == null)
-                Log.e(TAG, "onCreate: tvBottomJourneyModeBreakdown is NULL after findViewById!");
 
-            if (tvBottomJourneyModeBreakdown == null) {
-                throw new NullPointerException("tv_bottom_journey_mode_breakdown not found");
-            }
 
-            if (journeyDetailsPanel == null || tvBottomJourneyMode == null | tvBottomJourneyName == null || btnEditJourneyName == null) {
+            if (journeyDetailsPanel == null || tvBottomJourneyName == null || btnEditJourneyName == null) {
                 throw new NullPointerException("One or more bottom journey panel views (name/edit) not found...");
             }
 
@@ -2892,7 +2882,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
      * @param totalCount The total number of journeys available.
      */
     private void showJourneyDetailsPanel(JourneyDetails details, int index, int totalCount) {
-        if (details == null || journeyDetailsPanel == null || tvBottomJourneyModeBreakdown == null || tvBottomJourneyAccuracy == null) { // Add check for new TextView
+        if (details == null || journeyDetailsPanel == null || tvBottomJourneyAccuracy == null) { // Add check for new TextView
             Log.e(TAG, "Cannot show details panel - Details, Panel view, or Breakdown TextView is null");
             return;
         }
@@ -2934,17 +2924,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                         modesAdded++;
                     }
                 }
-                tvBottomJourneyModeBreakdown.setText(breakdownText.toString());
-                tvBottomJourneyModeBreakdown.setVisibility(View.VISIBLE); // Ensure visible
-            } else { // Handle case where total duration is zero (e.g., single point)
-                String singleMode = details.getDominantMode(); // Use helper if you added it
-                tvBottomJourneyModeBreakdown.setText("Mode: " + singleMode);
-                tvBottomJourneyModeBreakdown.setVisibility(View.VISIBLE);
             }
-        } else {
-            // Handle case where duration map is empty or null
-            tvBottomJourneyModeBreakdown.setText("Mode: Unknown");
-            tvBottomJourneyModeBreakdown.setVisibility(View.VISIBLE);
         }
         // --- End Mode Percentage Logic ---
 

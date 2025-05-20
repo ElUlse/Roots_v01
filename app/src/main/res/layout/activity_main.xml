@@ -257,16 +257,6 @@
         </LinearLayout>
 
         <TextView
-            android:id="@+id/tv_bottom_journey_mode"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="4dp"
-            android:textAppearance="?attr/textAppearanceBodyLarge"
-            android:textColor="?attr/colorOnSurface"
-            tools:text="Mode: Walking" />
-
-        <TextView
             android:id="@+id/tv_bottom_journey_start_time"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -310,15 +300,6 @@
             android:textAppearance="?attr/textAppearanceBodySmall"
             android:textColor="?attr/colorOnSurfaceVariant"
             tools:text="Avg Accuracy: 10.5 m" />
-
-        <TextView
-            android:id="@+id/tv_bottom_journey_mode_breakdown"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:textAppearance="?attr/textAppearanceBodySmall"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            tools:text="Modes: Walking (80%), Still (20%)" />
 
         <LinearLayout
             android:layout_width="match_parent"
