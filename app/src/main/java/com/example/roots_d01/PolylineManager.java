@@ -78,14 +78,14 @@ public class PolylineManager {
         this.mainThreadHandler = handler; // <<< Now 'handler' exists and is assigned
 
         SharedPreferences prefs = context.getSharedPreferences("Settings", Context.MODE_PRIVATE);
-        // Use the NEW constant names from SettingsActivity
         initialDistanceThresholdMeters = prefs.getInt(
-                SettingsActivity.KEY_INITIAL_RECORDING_DISTANCE_METERS, // <<< NEW NAME
-                SettingsActivity.DEFAULT_INITIAL_DISTANCE // <<< NEW NAME
+                SettingsActivity.KEY_INITIAL_RECORDING_DISTANCE_METERS,
+                SettingsActivity.DEFAULT_INITIAL_DISTANCE
         );
-        Log.d(TAG, "PolylineManager loaded Initial Distance Threshold: " + this.initialDistanceThreshold + "m");
+        // Log.d(TAG, "PolylineManager loaded Initial Distance Threshold: " + this.initialDistanceThresholdMeters + "m"); // Corrected variable name if initialDistanceThreshold was a typo
+        Log.d(TAG, "PolylineManager loaded Initial Distance Threshold: " + this.initialDistanceThresholdMeters + "m");
 
-        initializeNewSegmentInternal("Unknown", null); // Pass null for the location initially
+        initializeNewSegmentInternal("Unknown", null, false);
         Log.d(TAG, "PolylineManager Initialized");
     }
 
@@ -291,8 +291,7 @@ public class PolylineManager {
         if (shouldAddBasedOnGPS && !newSessionStarted && this.isRecordingActiveForCurrentSegment && isActiveMovementMode) { // Added isActiveMovementMode check
             if (this.currentPolylinePoints == null) {
                 Log.e(TAG, "CRITICAL: currentPolylinePoints list is null! Reinitializing segment.");
-                initializeNewSegmentInternal(effectiveMode, location); // Reinitialize if needed
-            }
+                initializeNewSegmentInternal(effectiveMode, location, false);            }
             // Check again just in case initialize failed
             if (this.currentPolylinePoints != null) {
                 Log.d("AccuracyDebug", "PolylineManager processNewLocation: ADDING point with accuracy = " + accuracy);
@@ -362,31 +361,32 @@ public class PolylineManager {
     }
 
 
-    private void initializeNewSegmentInternal(String initialTransportMode, @Nullable Location startLoc) {
-        Log.d(TAG, "Initializing new segment state. Mode: " + initialTransportMode);
+    // METHOD DEFINITION for initializeNewSegmentInternal (must accept 3 arguments)
+    private synchronized void initializeNewSegmentInternal(String initialTransportMode, @Nullable Location startLoc, boolean bypassInitialWaitConditions) {
+        Log.d(TAG, "Initializing new segment state. Mode: " + initialTransportMode + ", BypassWaits: " + bypassInitialWaitConditions);
         this.currentPolylinePoints = new ArrayList<>();
         this.currentSegmentDominantMode = initialTransportMode;
         this.lastPolylinePointTimeAdded = 0;
         this.segmentStartLocation = null;
         this.isWaitingForInitialDistance = false;
-        this.isRecordingActiveForCurrentSegment = false; // Default to false
-        this.accuratePointsAfterInitialDistanceCount = 0; // RESET THE NEW COUNTER
+        this.isRecordingActiveForCurrentSegment = false;
+        this.accuratePointsAfterInitialDistanceCount = 0;
+        this.recentAccuracies.clear();
         this.lastLocationTimestamp = (startLoc != null) ? startLoc.getTime() : System.currentTimeMillis();
-        this.recentAccuracies.clear(); // CLEAR THE ACCURACY WINDOW
 
-        // Check if the initial mode requires waiting
-        if (startLoc != null && this.initialDistanceThresholdMeters > 0) {
+        if (bypassInitialWaitConditions) {
+            Log.i(TAG, "Bypassing initial wait conditions for segment (" + initialTransportMode + "). Recording ACTIVE.");
+            this.isRecordingActiveForCurrentSegment = true;
+        } else if (startLoc != null && this.initialDistanceThresholdMeters > 0) {
             this.isWaitingForInitialDistance = true;
             this.segmentStartLocation = startLoc;
             Log.i(TAG, "Initializing segment (" + initialTransportMode + "). Waiting for " + this.initialDistanceThresholdMeters + "m distance. Recording NOT active.");
         } else {
-            this.isRecordingActiveForCurrentSegment = true; // Start recording if no initial distance wait
+            this.isRecordingActiveForCurrentSegment = true;
             Log.i(TAG, "Initializing segment (" + initialTransportMode + "). Distance threshold inactive or no start location. Recording ACTIVE.");
         }
-        // --- The if statement checking for MODE_DETERMINING is now completely removed ---
     }
 
-    // Inside PolylineManager.java
 
     /**
      * Starts a new polyline segment. Checks if the previous segment should be saved
@@ -407,7 +407,7 @@ public class PolylineManager {
 
         // 2. Initialize the state for the NEW segment, passing the start location
         // <<< --- MODIFICATION --- >>>
-        initializeNewSegmentInternal(newTransportMode, startLoc); // Pass startLoc here
+        initializeNewSegmentInternal(newTransportMode, startLoc, false); // Pass false
     }
 
 
@@ -599,15 +599,11 @@ public class PolylineManager {
      * @param newTransportMode The transport mode for the new segment.
      * @param startLoc The location where the new segment is considered to start.
      */
-    public synchronized void forceNewSegment(String newTransportMode, @Nullable Location startLoc) {
-        Log.i(TAG, "Forcing new segment due to external trigger. New Mode: " + newTransportMode);
-
-        // 1. Finalize and attempt to save the segment that just ended
-        // Use the existing savePolylineDataWithTimestamp which checks significance
-        savePolylineDataWithTimestamp(); // Trigger save check for the segment ending now
-
-        // 2. Initialize the state for the NEW segment
-        initializeNewSegmentInternal(newTransportMode, startLoc); // Use existing internal initializer
+    public synchronized void forceNewSegment(String newTransportMode, @Nullable Location startLoc, boolean bypassInitialWaitConditions) {
+        Log.i(TAG, "Forcing new segment due to external trigger. New Mode: " + newTransportMode + ", BypassWaits: " + bypassInitialWaitConditions);
+        savePolylineDataWithTimestamp();
+        // This call now uses the 'bypassInitialWaitConditions' parameter it received
+        initializeNewSegmentInternal(newTransportMode, startLoc, bypassInitialWaitConditions);
     }
 
     /**
@@ -694,7 +690,7 @@ public class PolylineManager {
         if (isPolylineInsignificant(pointsToProcess)) {
             Log.d(TAG, "Final segment insignificant, not saving.");
             // Still clear the state even if not saving
-            initializeNewSegmentInternal("Unknown", null);
+            initializeNewSegmentInternal("Unknown", null, false);
             return;
         }
 
@@ -747,7 +743,7 @@ public class PolylineManager {
 
         // --- Step 5: Clear State IMMEDIATELY after queuing ---
         Log.d(TAG, "Clearing current segment state after queuing final save.");
-        initializeNewSegmentInternal("Unknown", null); // Reset state for next time
+        initializeNewSegmentInternal("Unknown", null, false); // Add false for bypass
     }
 
     /**

@@ -13,6 +13,7 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.location.Location;
+import android.location.LocationManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -120,17 +121,7 @@ public class LocationTrackingService extends Service {
     final int WALKING_ACTIVITY_CONFIDENCE_THRESHOLD = 75; // Used for Running, Walking, Bicycling, In Vehicle
     final int BICYCLING_ACTIVITY_CONFIDENCE_THRESHOLD = 75; // Used for Running, Walking, Bicycling, In Vehicle
     final int IN_VEHICLE_ACTIVITY_CONFIDENCE_THRESHOLD = 75; // Used for Running, Walking, Bicycling, In Vehicle
-    private String potentialNextMode = null; // Stores a mode detected but not yet confirmed
-    private long potentialModeStartTime = 0; // Timestamp when potentialNextMode was first detected
-    private long lastConfirmedModeTime = 0; // Timestamp of the last confirmed mode change
-    // --- Constants for Debouncing/Filtering ---
-    // How long a new potential mode must be detected before confirming the change for PolylineManager
-    private static final long MIN_DURATION_FOR_MODE_CHANGE_MS = 8 * 1000; // 8 seconds
-    // How long to hold onto the last confirmed mode during brief UNKNOWN/STILL periods
-    private static final long MAX_DURATION_TO_KEEP_LAST_MODE_MS = 15 * 1000; // 15 seconds
-    // How long a moving activity needs to be detected before auto-starting
-    private static final long MIN_DURATION_FOR_AUTO_START_MS = 6 * 1000; // 6 seconds (adjust as needed)
-    private String effectiveModeForPolyline = "Unknown"; // <<< ADD THIS LINE
+
     private String lastConfirmedMode = "Unknown"; // Correct initialization
 
     // --- Latching and Timeout State (NEW) ---
@@ -149,33 +140,42 @@ public class LocationTrackingService extends Service {
     public static final String ACTION_NEW_JOURNEY_SAVED = "com.example.roots_d01.action.NEW_JOURNEY_SAVED";
     // Optional: If you want to pass the start time of the newly saved journey
     public static final String EXTRA_NEW_JOURNEY_START_TIME = "com.example.roots_d01.extra.NEW_JOURNEY_START_TIME";
-
+    private static final String PREFS_SERVICE_STATE = "LocationTrackingServiceState";
+    private static final String KEY_LAST_OVERRIDE_MODE = "lastOverrideMode";
+    private String effectiveModeForPolyline = "Unknown"; // Initialize to a default
 
 
     final int STILL_CONFIDENCE_THRESHOLD = 85;
     @Override
     public void onCreate() {
         super.onCreate();
-        Log.w("AutoTrack_Service", "SERVICE onCreate() CALLED"); // Use WARN
+        Log.w("AutoTrack_Service", "SERVICE onCreate() CALLED");
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
-        Log.d(TAG, "FusedLocationProviderClient initialized."); // Optional log
-        createNotificationChannel(); // Create channel once when service is created
-
-        // Initialize dependencies
-        gson = new Gson(); // Initialize Gson
-        backgroundExecutor = Executors.newSingleThreadExecutor(); // Initialize Executor
-        mainThreadHandler = new Handler(Looper.getMainLooper()); // Initialize Handler
+        createNotificationChannel();
+        gson = new Gson();
+        backgroundExecutor = Executors.newSingleThreadExecutor();
+        mainThreadHandler = new Handler(Looper.getMainLooper());
         stillUnknownTimeoutHandler = new Handler(Looper.getMainLooper());
-
-        // Initialize Activity Recognition Client here too
         initializeActivityRecognition();
 
-        // Modify the PolylineManager creation to pass the handler
+        // --- NEW: Restore override mode from SharedPreferences ---
+        SharedPreferences prefs = getSharedPreferences(PREFS_SERVICE_STATE, Context.MODE_PRIVATE);
+        this.currentOverrideMode = prefs.getString(KEY_LAST_OVERRIDE_MODE, null);
+        Log.i(TAG, "Restored currentOverrideMode from SharedPreferences in onCreate: " + this.currentOverrideMode);
+        // --- END NEW ---
+
         Log.d(TAG, "Creating PolylineManager instance.");
-        polylineManager = new PolylineManager(getApplicationContext(), backgroundExecutor, gson, mainThreadHandler); // Pass the handler
+        polylineManager = new PolylineManager(getApplicationContext(), backgroundExecutor, gson, mainThreadHandler);
+        // --- Pass restored override mode to PolylineManager IF it's not null ---
+        // This requires a new method in PolylineManager or modification to its constructor/init.
+        // For now, we'll assume PolylineManager's init will use "Unknown" and then the first
+        // location update will use this restored currentOverrideMode if not null.
+        // If currentOverrideMode is restored, the first call to polylineManager.processNewLocation
+        // from onLocationResult should use this override.
+
         setupOverrideReceiver();
         setupActivityUpdateReceiver();
-        createLocationCallback(); // Ensure callback is created AFTER handlers
+        createLocationCallback();
     }
 
     // ... onStartCommand ...
@@ -207,6 +207,34 @@ public class LocationTrackingService extends Service {
             return;
         }
 
+        LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        boolean gpsEnabled = false;
+        boolean networkEnabled = false;
+
+        try {
+            gpsEnabled = lm.isProviderEnabled(LocationManager.GPS_PROVIDER);
+        } catch (Exception ex) {
+            Log.e(TAG, "Error checking GPS provider state", ex);
+        }
+
+        try {
+            networkEnabled = lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+        } catch (Exception ex) {
+            Log.e(TAG, "Error checking Network provider state", ex);
+        }
+
+        if (!gpsEnabled && !networkEnabled) {
+            Log.e(TAG, "Location services are not enabled. Cannot start tracking.");
+            Intent gpsDisabledIntent = new Intent(ACTION_GPS_DISABLED); // You already have this action
+            LocalBroadcastManager.getInstance(this).sendBroadcast(gpsDisabledIntent);
+            // Optionally, you could also stopSelf() here if you decide tracking is impossible without it.
+            // However, the user might enable it, and the service might still be running due to START_STICKY.
+            // For now, just broadcasting allows the UI to react.
+            // If you want to be stricter: stopSelf();
+            return; // Don't proceed to request updates if location services are off
+        }
+
+
         // Set the tracking flag to true, even for manual starts via this method
         if (!this.isAutoTrackingCurrentlyActive) { // Only log/notify if changing state
             Log.w(TAG_SYNC, "SERVICE: startTracking() called. Setting isAutoTrackingCurrentlyActive=true"); // Use a distinct log tag if desired
@@ -214,9 +242,7 @@ public class LocationTrackingService extends Service {
             notifyTrackingStateChange(true); // Notify listeners (like MainActivity)
         }
 
-        // Create Location Request (Correct)
-        // Note: Builder requires play-services-location v21+
-        // Use create() for compatibility if needed: LocationRequest.create()...
+
         LocationRequest locationRequest = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, LOCATION_UPDATE_INTERVAL)
                 .setMinUpdateDistanceMeters(LOCATION_UPDATE_DISTANCE)
                 .build();
@@ -231,7 +257,13 @@ public class LocationTrackingService extends Service {
             Log.i(TAG, "startTracking: Requesting location updates via FusedLocationProviderClient...");
             fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
                     .addOnSuccessListener(aVoid -> Log.i(TAG, "startTracking: Fused location updates requested successfully."))
-                    .addOnFailureListener(e -> Log.e(TAG, "startTracking: Failed to request fused location updates.", e));
+                    .addOnFailureListener(e -> {
+                        Log.e(TAG, "startTracking: Failed to request fused location updates.", e);
+                        // It's possible this failure is due to location services being turned off *after* our check.
+                        // Consider broadcasting ACTION_GPS_DISABLED here too.
+                        Intent gpsErrorIntent = new Intent(ACTION_GPS_DISABLED);
+                        LocalBroadcastManager.getInstance(this).sendBroadcast(gpsErrorIntent);
+                    });
         } catch (SecurityException e) {
             Log.e(TAG, "startTracking: SecurityException requesting fused location updates!", e);
             this.isAutoTrackingCurrentlyActive = false;
@@ -582,12 +614,10 @@ public class LocationTrackingService extends Service {
                     // --- Determine Mode to pass to PolylineManager ---
                     String modeForManager;
                     if (LocationTrackingService.this.currentOverrideMode != null) {
-                        // Always prioritize user override
-                        modeForManager = LocationTrackingService.this.currentOverrideMode;
+                        modeForManager = LocationTrackingService.this.currentOverrideMode; // This will now use the restored value if service restarted
                         Log.d(TAG, "onLocationResult: Using OVERRIDE Mode for PolylineManager: " + modeForManager);
                     } else {
-                        // Use the debounced/filtered mode calculated and stored by handleActivityChange
-                        modeForManager = LocationTrackingService.this.effectiveModeForPolyline; // <-- Use this variable
+                        modeForManager = LocationTrackingService.this.effectiveModeForPolyline;
                         Log.d(TAG, "onLocationResult: Using Filtered/Debounced Mode for PolylineManager: " + modeForManager);
                     }
                     // --- End Mode Determination ---
@@ -871,17 +901,28 @@ public class LocationTrackingService extends Service {
                     currentOverrideMode = intent.getStringExtra(MainActivity.EXTRA_OVERRIDE_MODE);
                     Log.i(TAG, "Received mode override broadcast: New Override Mode = " + currentOverrideMode);
 
-                    // If PolylineManager exists, force it to start a new segment
-                    if (polylineManager != null) {
-                        Location lastKnownLocation = null; // <<< Pass null
+                    SharedPreferences prefs = getSharedPreferences(PREFS_SERVICE_STATE, Context.MODE_PRIVATE);
+                    prefs.edit().putString(KEY_LAST_OVERRIDE_MODE, currentOverrideMode).apply();
+                    Log.d(TAG, "Saved currentOverrideMode to SharedPreferences: " + currentOverrideMode);
 
-                        // Determine the mode to start the *new* segment with.
-                        // If override is cleared (null), use "Unknown" or try to auto-detect?
-                        // Let's use "Unknown" if cleared, otherwise use the override mode.
+                    if (polylineManager != null) {
+                        Location lastKnownLocation = null; // Or get actual last known if available and relevant
+                        // Attempt to get last known location to pass to PolylineManager
+                        try {
+                            if (ActivityCompat.checkSelfPermission(LocationTrackingService.this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                                lastKnownLocation = fusedLocationClient.getLastLocation().getResult(); // This is a task, careful with direct getResult()
+                                // A better way might be to use the 'location' from the last onLocationResult if available
+                            }
+                        } catch (Exception e) {
+                            Log.w(TAG, "Could not get last location for forced segment start.", e);
+                        }
+
+
                         String modeForNewSegment = (currentOverrideMode != null) ? currentOverrideMode : "Unknown";
 
                         Log.d(TAG,"Telling PolylineManager to force a new segment. Mode: " + modeForNewSegment);
-                        polylineManager.forceNewSegment(modeForNewSegment, lastKnownLocation);
+                        // Pass true to bypass initial wait conditions for a user override
+                        polylineManager.forceNewSegment(modeForNewSegment, lastKnownLocation, true);
                     } else {
                         Log.e(TAG, "PolylineManager is null, cannot force new segment on override.");
                     }
