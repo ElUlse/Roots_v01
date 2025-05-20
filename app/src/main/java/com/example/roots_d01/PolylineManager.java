@@ -58,6 +58,17 @@ public class PolylineManager {
     private static final String TAG_MATCH_CHECK = "MapMatchCheck";
     private final AtomicBoolean isSavePending = new AtomicBoolean(false); // Add this
     private float initialDistanceThresholdMeters;
+    private int accuratePointsAfterInitialDistanceCount = 0;
+    private static final int MIN_ACCURATE_POINTS_FOR_STABLE_LOCK = 3; // Configurable: e.g., 3 points
+    private static final float ACCURACY_THRESHOLD_FOR_STABLE_LOCK = 20.0f; // Configurable: e.g., points must be < 20m accuracy
+    private static final float WALKING_MOVEMENT_THRESHOLD = 2.0f;   // e.g., 2 meters for walking
+    private static final float BICYCLING_MOVEMENT_THRESHOLD = 4.0f; // e.g., 4 meters for bicycling
+    private static final float IN_VEHICLE_MOVEMENT_THRESHOLD = 8.0f; // e.g., 8 meters for in-vehicle
+    // MIN_MOVEMENT_THRESHOLD (3.0f) can remain as a default or for "Unknown" activity
+    private static final int ACCURACY_WINDOW_SIZE = 5; // Number of recent accuracies to consider
+    private final List<Float> recentAccuracies = new ArrayList<>();
+    private static final float ACCEPTABLE_ACCURACY_DEGRADATION_FACTOR = 2.0f; // Allow new accuracy up to X times worse than recent average
+    private static final float SIGNIFICANT_ACCURACY_DEGRADATION_THRESHOLD = 30.0f; // If recent average is already bad (e.g. >30m), be less tolerant.
 
     // Constructor
     public PolylineManager(Context context, ExecutorService executor, Gson gsonInstance, Handler handler) { // <<< ADDED Handler handler parameter
@@ -86,17 +97,71 @@ public class PolylineManager {
 
         Log.d("AccuracyDebug", "PolylineManager processNewLocation: Received accuracy = " + accuracy);
 
+        long currentTime = System.currentTimeMillis();
 
-        // Absolute Accuracy Check ---
-        if (location.hasAccuracy() && location.getAccuracy() > MAX_ALLOWED_ACCURACY) {
-            Log.w(TAG, "processNewLocation: Discarding point due to very poor accuracy: " + location.getAccuracy() + "m");
-            // Still update the timestamp of the last *processed* location, even if discarded
-            this.lastLocationTimestamp = System.currentTimeMillis();
-            // Return the dominant mode of the current segment, as this point doesn't affect it
-            return this.currentSegmentDominantMode != null ? this.currentSegmentDominantMode : "Unknown";
+// --- Adaptive Accuracy Check with Rolling Window ---
+        boolean adaptivelyAcceptPoint = true; // Assume acceptable by default, prove otherwise
+        if (location.hasAccuracy()) {
+            float currentAccuracy = location.getAccuracy();
+
+            // 1. Hard reject if accuracy exceeds the absolute maximum
+            if (currentAccuracy > MAX_ALLOWED_ACCURACY) {
+                Log.w(TAG, "processNewLocation: Discarding point due to very poor accuracy (hard limit): " + currentAccuracy + "m");
+                this.lastLocationTimestamp = currentTime; // Still update timestamp
+                return this.currentSegmentDominantMode != null ? this.currentSegmentDominantMode : "Unknown";
+            }
+
+            // 2. If accuracy is good (e.g., better than POOR_ACCURACY_THRESHOLD), it's generally acceptable
+            if (currentAccuracy <= POOR_ACCURACY_THRESHOLD) {
+                // adaptivelyAcceptPoint remains true, point is good.
+                // Add to recent accuracies later if it passes other filters (movement, etc.)
+            } else {
+                // Accuracy is between POOR_ACCURACY_THRESHOLD and MAX_ALLOWED_ACCURACY.
+                // This is where the rolling window logic applies.
+                if (recentAccuracies.isEmpty()) {
+                    // No history, accept this point if it's within MAX_ALLOWED_ACCURACY (which it is if we reached here)
+                    adaptivelyAcceptPoint = true;
+                    Log.d(TAG, "Adaptive Accuracy: No recent history, accepting point with accuracy: " + currentAccuracy + "m");
+                } else {
+                    float sumOfRecentAccuracies = 0;
+                    for (float acc : recentAccuracies) {
+                        sumOfRecentAccuracies += acc;
+                    }
+                    float averageRecentAccuracy = sumOfRecentAccuracies / recentAccuracies.size();
+
+                    Log.d(TAG, "Adaptive Accuracy: Current=" + String.format("%.1f", currentAccuracy) +
+                            "m, RecentAvg=" + String.format("%.1f", averageRecentAccuracy) +
+                            "m (WindowSize=" + recentAccuracies.size() + ")");
+
+                    // Condition 1: Is the new accuracy too much worse than the recent average?
+                    boolean muchWorseThanAverage = currentAccuracy > (averageRecentAccuracy * ACCEPTABLE_ACCURACY_DEGRADATION_FACTOR);
+
+                    // Condition 2: Is the recent average already quite bad, and this point makes it even worse?
+                    boolean averageIsAlreadyPoorAndGettingWorse = averageRecentAccuracy > SIGNIFICANT_ACCURACY_DEGRADATION_THRESHOLD && currentAccuracy > averageRecentAccuracy;
+
+                    if (muchWorseThanAverage || averageIsAlreadyPoorAndGettingWorse) {
+                        Log.w(TAG, "Adaptive Accuracy: Discarding point. Current: " + String.format("%.1f", currentAccuracy) +
+                                "m. MuchWorse: " + muchWorseThanAverage +
+                                " (RecentAvg: " + String.format("%.1f", averageRecentAccuracy) +
+                                ", Factor: " + ACCEPTABLE_ACCURACY_DEGRADATION_FACTOR + ")" +
+                                ", AvgPoorAndWorsening: " + averageIsAlreadyPoorAndGettingWorse +
+                                " (RecentAvgThreshold: " + SIGNIFICANT_ACCURACY_DEGRADATION_THRESHOLD + ")");
+                        adaptivelyAcceptPoint = false;
+                    } else {
+                        // Point is acceptable based on adaptive logic
+                        Log.d(TAG, "Adaptive Accuracy: Accepting point with accuracy: " + currentAccuracy + "m (within adaptive tolerance).");
+                    }
+                }
+            }
+        } else { // No accuracy information
+            Log.w(TAG, "processNewLocation: Discarding point due to missing accuracy information.");
+            adaptivelyAcceptPoint = false; // If no accuracy, we can't assess it.
         }
 
-        long currentTime = System.currentTimeMillis();
+        if (!adaptivelyAcceptPoint) {
+            this.lastLocationTimestamp = currentTime; // Update timestamp even if discarded
+            return this.currentSegmentDominantMode != null ? this.currentSegmentDominantMode : "Unknown";
+        }
 
         // --- Determine Effective Mode (Trust Service or Override) ---
         String effectiveMode = (serviceDeterminedMode != null) ? serviceDeterminedMode : "Unknown"; // Use passed mode, default to Unknown if null
@@ -137,44 +202,76 @@ public class PolylineManager {
         // --- End Session Management ---
 
 
-        // --- Check Initial Distance Threshold ---
+// --- Check Initial Distance Threshold ---
         if (this.isWaitingForInitialDistance) {
             if (this.segmentStartLocation != null) {
                 float distanceSinceStart = location.distanceTo(this.segmentStartLocation);
-                if (distanceSinceStart >= this.initialDistanceThreshold) {
-                    Log.i(TAG, "Initial " + this.initialDistanceThreshold + "m distance threshold met for segment. Enabling recording.");
-                    this.isWaitingForInitialDistance = false;
-                    this.isRecordingActiveForCurrentSegment = true; // <<< Enable recording HERE
+                if (distanceSinceStart >= this.initialDistanceThresholdMeters) {
+                    Log.d(TAG, "Initial " + this.initialDistanceThresholdMeters + "m distance threshold met.");
+                    // Now, check for stable lock
+                    if (location.hasAccuracy() && location.getAccuracy() <= ACCURACY_THRESHOLD_FOR_STABLE_LOCK) {
+                        accuratePointsAfterInitialDistanceCount++;
+                        Log.d(TAG, "Accurate point (" + location.getAccuracy() + "m) received after distance threshold. Count: " + accuratePointsAfterInitialDistanceCount);
+                        if (accuratePointsAfterInitialDistanceCount >= MIN_ACCURATE_POINTS_FOR_STABLE_LOCK) {
+                            Log.i(TAG, "Stable GPS lock achieved (" + accuratePointsAfterInitialDistanceCount + " accurate points). Enabling recording for segment.");
+                            this.isWaitingForInitialDistance = false;
+                            this.isRecordingActiveForCurrentSegment = true; // <<< Enable recording HERE
+                            // Optionally, add the current point here if it meets other criteria,
+                            // or let it be added in the subsequent point filtering logic.
+                            // For simplicity, we'll let the main logic add it.
+                        }
+                    } else {
+                        // Accurate point not received, reset counter if you want them to be consecutive
+                        Log.d(TAG, "Point received after distance threshold, but accuracy (" + (location.hasAccuracy() ? location.getAccuracy() : "N/A") + "m) is not sufficient for stable lock. Resetting accurate count.");
+                        accuratePointsAfterInitialDistanceCount = 0;
+                    }
                 } else {
-                    Log.d(TAG, "Waiting for initial " + this.initialDistanceThreshold + "m distance (Current: " + String.format("%.1f", distanceSinceStart) + "m). Skipping point recording.");
-                    this.lastLocationTimestamp = currentTime; // Still update timestamp
-                    // Don't return early here, let the mode determination below proceed for logging/state
-                    // return effectiveMode; // REMOVED: Allow function to complete
+                    Log.d(TAG, "Waiting for initial " + this.initialDistanceThresholdMeters + "m distance (Current: " + String.format("%.1f", distanceSinceStart) + "m). Skipping point recording phase.");
+                    // accuratePointsAfterInitialDistanceCount = 0; // Reset if distance not met yet
                 }
-            } else { // Handle null start location (should ideally not happen if waiting)
-                Log.w(TAG, "isWaitingForInitialDistance true, but segmentStartLocation is null. Disabling wait, enabling recording.");
-                this.isWaitingForInitialDistance = false;
-                this.isRecordingActiveForCurrentSegment = true;
+            } else { // Not waiting for initial distance (either threshold met or was not applicable)
+                // This case implies segmentStartLocation might be null or distance threshold was 0.
+                // If it wasn't waiting, isRecordingActiveForCurrentSegment would have been set in initializeNewSegmentInternal.
+            }
+            // Update timestamp AFTER initial checks, but before returning if still waiting
+            if (this.isWaitingForInitialDistance) { // If still waiting after checks
+                this.lastLocationTimestamp = currentTime;
             }
         }
-        // --- End Check ---
+
+        // --- Determine Min Movement Threshold based on Effective Mode ---
+        float currentMinMovementThreshold; // Use a local variable for this specific point check
+        switch (effectiveMode) {
+            case "Walking":
+                currentMinMovementThreshold = WALKING_MOVEMENT_THRESHOLD;
+                break;
+            case "Bicycling":
+                currentMinMovementThreshold = BICYCLING_MOVEMENT_THRESHOLD;
+                break;
+            case "In Vehicle":
+                currentMinMovementThreshold = IN_VEHICLE_MOVEMENT_THRESHOLD;
+                break;
+            default: // Still, Unknown, or any other mode
+                currentMinMovementThreshold = MIN_MOVEMENT_THRESHOLD; // Default threshold
+                break;
+        }
+// Log the chosen threshold for debugging
+        Log.d(TAG, "Using movement threshold: " + currentMinMovementThreshold + "m for mode: " + effectiveMode);
+// --- End Determine Min Movement Threshold ---
+
 
 
         // --- Point Filtering (Time/Distance) ---
-        // This check is independent of activity type, purely based on GPS movement
-        boolean likelyIndoorsOrTiltingOrStill = false; // Renamed for clarity
+// This check is independent of activity type, purely based on GPS movement
+        boolean likelyIndoorsOrTiltingOrStill = false;
         if (location.hasAccuracy() && location.getAccuracy() > POOR_ACCURACY_THRESHOLD) {
             likelyIndoorsOrTiltingOrStill = true;
-            Log.d(TAG, "Poor GPS Accuracy detected");
+            Log.d(TAG, "Poor GPS Accuracy detected (" + location.getAccuracy() + "m), potentially affecting movement threshold logic.");
         }
         // Check activity type directly here if needed, but effectiveMode is checked later
         // if ((activityType == DetectedActivity.TILTING || activityType == DetectedActivity.STILL) && activityConfidence > 50) { likelyIndoorsOrTiltingOrStill = true; Log.d(TAG,"Detected TILTING or STILL"); }
 
-        float currentMinMovementThreshold = MIN_MOVEMENT_THRESHOLD;
-        // Apply stricter threshold only based on GPS accuracy now, not activity
-        if (likelyIndoorsOrTiltingOrStill) {
-            Log.d(TAG, "Using stricter movement threshold due to poor GPS accuracy.");
-        }
+
 
         long currentMinTimeInterval = getMinTimeIntervalForMode(effectiveMode);
         boolean shouldAddBasedOnGPS = shouldAddPoint(location, currentTime, currentMinTimeInterval, currentMinMovementThreshold);
@@ -264,7 +361,6 @@ public class PolylineManager {
         return this.isRecordingActiveForCurrentSegment;
     }
 
-    // --- Helper Methods (To be filled/copied from MainActivity/Service) ---
 
     private void initializeNewSegmentInternal(String initialTransportMode, @Nullable Location startLoc) {
         Log.d(TAG, "Initializing new segment state. Mode: " + initialTransportMode);
@@ -274,17 +370,17 @@ public class PolylineManager {
         this.segmentStartLocation = null;
         this.isWaitingForInitialDistance = false;
         this.isRecordingActiveForCurrentSegment = false; // Default to false
+        this.accuratePointsAfterInitialDistanceCount = 0; // RESET THE NEW COUNTER
         this.lastLocationTimestamp = (startLoc != null) ? startLoc.getTime() : System.currentTimeMillis();
-
+        this.recentAccuracies.clear(); // CLEAR THE ACCURACY WINDOW
 
         // Check if the initial mode requires waiting
-        if (startLoc != null && this.initialDistanceThreshold > 0) {
+        if (startLoc != null && this.initialDistanceThresholdMeters > 0) {
             this.isWaitingForInitialDistance = true;
             this.segmentStartLocation = startLoc;
-            Log.i(TAG, "Initializing segment (" + initialTransportMode + "). Waiting for " + this.initialDistanceThreshold + "m distance. Recording NOT active.");
+            Log.i(TAG, "Initializing segment (" + initialTransportMode + "). Waiting for " + this.initialDistanceThresholdMeters + "m distance. Recording NOT active.");
         } else {
-            // Start recording immediately otherwise
-            this.isRecordingActiveForCurrentSegment = true;
+            this.isRecordingActiveForCurrentSegment = true; // Start recording if no initial distance wait
             Log.i(TAG, "Initializing segment (" + initialTransportMode + "). Distance threshold inactive or no start location. Recording ACTIVE.");
         }
         // --- The if statement checking for MODE_DETERMINING is now completely removed ---
@@ -740,6 +836,15 @@ public class PolylineManager {
         }
         Log.d(TAG, "getLastAddedPoint() returning: " + (pointToSend != null ? pointToSend.toString() : "null"));
         return pointToSend;
+    }
+
+    private synchronized void addAccuracyToWindow(float accuracy) {
+        if (accuracy <= 0) return; // Don't add invalid accuracies
+
+        if (recentAccuracies.size() >= ACCURACY_WINDOW_SIZE) {
+            recentAccuracies.remove(0); // Remove oldest if window is full
+        }
+        recentAccuracies.add(accuracy);
     }
 }
 
