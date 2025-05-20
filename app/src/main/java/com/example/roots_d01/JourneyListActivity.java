@@ -1,6 +1,11 @@
 package com.example.roots_d01;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.location.Location;
 import android.os.Bundle;
@@ -8,72 +13,95 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
+import org.maplibre.android.MapLibre;
+import org.maplibre.android.geometry.LatLng;
+import org.maplibre.android.geometry.LatLngBounds;
+import org.maplibre.android.snapshotter.MapSnapshotter;
+
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.FileReader;
+import java.io.IOException;
 import java.lang.reflect.Type;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowCompat;
-import androidx.core.view.WindowInsetsCompat;
-import androidx.appcompat.app.AlertDialog; // For AlertDialog
-import android.view.ViewGroup;          // For ViewGroup.LayoutParams
-
-import java.text.SimpleDateFormat;
-import java.util.Calendar;
-import java.util.Locale;
-
-
-public class JourneyListActivity extends AppCompatActivity implements com.example.roots_d01.JourneyAdapter.OnJourneyActionListener {
+public class JourneyListActivity extends AppCompatActivity implements JourneyAdapter.OnJourneyActionListener {
 
     private static final String TAG = "JourneyListActivity";
     private RecyclerView journeyRecyclerView;
-    private com.example.roots_d01.JourneyAdapter journeyAdapter;
+    private JourneyAdapter journeyAdapter;
     private TextView emptyListTextView;
-    private List<JourneyDetails> journeyDetailsList = new ArrayList<>(); // Stores ALL loaded journeys
+    private List<JourneyDetails> journeyDetailsList = new ArrayList<>();
 
     private final ExecutorService backgroundExecutor = Executors.newSingleThreadExecutor();
     private final Handler mainThreadHandler = new Handler(Looper.getMainLooper());
     private final Gson gson = new Gson();
     private Map<String, Boolean> headerExpansionStates = new LinkedHashMap<>();
-    private boolean isInitialLoad = true; // Flag to manage initial expansion logic
+    private boolean isInitialLoad = true;
+    private Map<Long, String> journeyPreviewFilePaths = new HashMap<>();
+    private static final String PREVIEW_SUBDIR = "journey_previews";
+    private final AtomicBoolean isLoadingJourneys = new AtomicBoolean(false);
 
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        try {
+            MapLibre.getInstance(this.getApplicationContext());
+            Log.i(TAG, "MapLibre SDK initialized successfully in JourneyListActivity.");
+        } catch (Exception e) {
+            Log.e(TAG, "FATAL: Error initializing MapLibre SDK in JourneyListActivity", e);
+            Toast.makeText(this, "Critical error: Map components failed to initialize.", Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
 
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         setContentView(R.layout.activity_journey_list);
 
         View rootView = findViewById(R.id.journeyListRootLayout);
-
         journeyRecyclerView = findViewById(R.id.journeyRecyclerView);
         emptyListTextView = findViewById(R.id.emptyListTextView);
 
+        if (journeyRecyclerView == null || emptyListTextView == null) {
+            Log.e(TAG, "Critical UI elements (RecyclerView or EmptyTextView) not found. Aborting onCreate.");
+            Toast.makeText(this, "Error initializing list view layout.", Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
+
         journeyRecyclerView.setLayoutManager(new LinearLayoutManager(this));
-        journeyAdapter = new com.example.roots_d01.JourneyAdapter(this, new ArrayList<Object>(), this);
+        journeyAdapter = new JourneyAdapter(this, new ArrayList<>(), this, backgroundExecutor, mainThreadHandler);
         journeyRecyclerView.setAdapter(journeyAdapter);
 
         if (rootView != null) {
@@ -89,25 +117,37 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
                 return windowInsets;
             });
         } else {
-            Log.e(TAG, "Root layout (journeyListRootLayout) not found!");
+            Log.w(TAG, "Root layout (journeyListRootLayout) not found for insets.");
         }
 
         journeyDetailsList.clear();
-        if (journeyAdapter != null) {
-            journeyAdapter.updateJourneys(new ArrayList<>(), new HashMap<>());
-        }
         headerExpansionStates.clear();
+        journeyPreviewFilePaths.clear();
         isInitialLoad = true;
 
         loadJourneysInBackground();
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        Log.d(TAG, "onResume: Checking if journey load is needed.");
+        // isInitialLoad will be reset inside loadJourneysInBackground if it proceeds
+        loadJourneysInBackground();
+    }
+
+
+    @Override
     public void onRenameRequested(JourneyDetails journey) {
         Log.d(TAG, "onRenameRequested for journey starting at: " + journey.startTimeMs);
         showRenameDialog(journey);
     }
+
     private void showRenameDialog(JourneyDetails journeyToRename) {
+        if (journeyToRename == null) {
+            Log.e(TAG, "showRenameDialog: journeyToRename is null.");
+            return;
+        }
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Rename Journey");
 
@@ -144,6 +184,10 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
 
     private void updateJourneyName(JourneyDetails journeyToUpdate, String newName) {
         int indexInFullList = -1;
+        if (journeyToUpdate == null) {
+            Log.e(TAG, "updateJourneyName: journeyToUpdate is null.");
+            return;
+        }
         for (int i = 0; i < this.journeyDetailsList.size(); i++) {
             if (this.journeyDetailsList.get(i).startTimeMs == journeyToUpdate.startTimeMs) {
                 indexInFullList = i;
@@ -154,8 +198,8 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
         if (indexInFullList != -1) {
             this.journeyDetailsList.get(indexInFullList).journeyName = newName;
             saveJourneyMetadataInBackground(this.journeyDetailsList.get(indexInFullList));
-            isInitialLoad = false; // User interaction, not initial load
-            displayGroupedJourneys(new ArrayList<>(this.journeyDetailsList), false); // MODIFIED: Pass false for scroll
+            isInitialLoad = false;
+            displayGroupedJourneysWithPreviews(new ArrayList<>(this.journeyDetailsList), false);
             Log.d(TAG, "Updated journey name and refreshed list for start time: " + journeyToUpdate.startTimeMs);
             Toast.makeText(this, "Journey renamed", Toast.LENGTH_SHORT).show();
         } else {
@@ -164,152 +208,124 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
         }
     }
 
-    private void displayGroupedJourneys(List<JourneyDetails> loadedJourneys, boolean scrollToDefaultSection) {
-        Log.d(TAG, "displayGroupedJourneys: Received " + (loadedJourneys != null ? loadedJourneys.size() : "null") + " journeys. isInitialLoad: " + isInitialLoad + ", scrollToDefault: " + scrollToDefaultSection);
-
-        if (loadedJourneys == null) {
-            loadedJourneys = new ArrayList<>();
-        }
-
+    private void displayGroupedJourneysWithPreviews(List<JourneyDetails> journeysToDisplay, boolean scrollToDefault) {
+        Log.d(TAG, "displayGroupedJourneysWithPreviews: Received " + (journeysToDisplay != null ? journeysToDisplay.size() : "null") + " journeys. Scroll: " + scrollToDefault);
         List<Object> listItemsWithHeaders = new ArrayList<>();
-        String lastWeekHeaderKey = "";
-        String lastDayHeaderKey = ""; // This will be the dateHeaderText of the DayHeaderItem
 
+        String lastWeekHeaderKey = "";
+        String lastDayHeaderKey = "";
         Calendar journeyCal = Calendar.getInstance();
         Calendar todayCal = Calendar.getInstance();
         Calendar yesterdayCal = Calendar.getInstance();
         yesterdayCal.add(Calendar.DATE, -1);
-
         SimpleDateFormat dayOfWeekFormat = new SimpleDateFormat("EEEE", Locale.getDefault());
-        SimpleDateFormat dayHeaderFormat = new SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault());
-        SimpleDateFormat weekHeaderFormat = new SimpleDateFormat("'Week of' MMMM d, yyyy", Locale.getDefault());
-
+        SimpleDateFormat dayHeaderFormat = new SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()); // Corrected year format
+        SimpleDateFormat weekHeaderFormat = new SimpleDateFormat("'Week of' MMMM d, yyyy", Locale.getDefault()); // Corrected year format
+        Map<String, Set<String>> modesPerDay = new HashMap<>();
         String todayDayHeaderKeyForExpansion = "";
         String mostRecentDayHeaderKeyForExpansion = "";
 
-        // --- Pre-calculate transport modes for each day ---
-        Map<String, Set<String>> modesPerDay = new HashMap<>();
-        if (loadedJourneys != null) {
-            for (JourneyDetails journey : loadedJourneys) {
+
+        if (journeysToDisplay != null) {
+            for (JourneyDetails journey : journeysToDisplay) {
                 if (journey == null || journey.startTimeMs <= 0) continue;
                 journeyCal.setTimeInMillis(journey.startTimeMs);
                 String currentDayDisplayHeader;
                 if (isSameDay(journeyCal, todayCal)) {
                     currentDayDisplayHeader = "Today, " + dayOfWeekFormat.format(journeyCal.getTime());
+                    if (todayDayHeaderKeyForExpansion.isEmpty() && isInitialLoad) todayDayHeaderKeyForExpansion = currentDayDisplayHeader;
                 } else if (isSameDay(journeyCal, yesterdayCal)) {
                     currentDayDisplayHeader = "Yesterday, " + dayOfWeekFormat.format(journeyCal.getTime());
                 } else {
                     currentDayDisplayHeader = dayHeaderFormat.format(journeyCal.getTime());
                 }
-
                 modesPerDay.putIfAbsent(currentDayDisplayHeader, new HashSet<>());
                 if (journey.durationPerModeMs != null) {
                     for (String mode : journey.durationPerModeMs.keySet()) {
-                        if (journey.durationPerModeMs.getOrDefault(mode, 0L) > 0) {
-                            // Only add modes that actually have duration
-                            if (!mode.equals("Still") && !mode.equals("Unknown")) { // Exclude Still/Unknown from icons
-                                modesPerDay.get(currentDayDisplayHeader).add(mode);
-                            }
+                        if (journey.durationPerModeMs.getOrDefault(mode, 0L) > 0 && !mode.equals("Still") && !mode.equals("Unknown")) {
+                            modesPerDay.get(currentDayDisplayHeader).add(mode);
                         }
                     }
                 }
             }
         }
-        // --- End pre-calculation ---
 
-
-        if (isInitialLoad) {
-            headerExpansionStates.clear();
-            List<String> uniqueDayHeadersInOrder = new ArrayList<>(); // Store unique day header strings
-            Calendar tempCal = Calendar.getInstance();
-
-            for (JourneyDetails journey : loadedJourneys) {
-                if (journey == null || journey.startTimeMs <= 0) continue;
-                tempCal.setTimeInMillis(journey.startTimeMs);
-                String currentDayDisplayHeader;
-
-                if (isSameDay(tempCal, todayCal)) {
-                    currentDayDisplayHeader = "Today, " + dayOfWeekFormat.format(tempCal.getTime());
-                    if (todayDayHeaderKeyForExpansion.isEmpty()) {
-                        todayDayHeaderKeyForExpansion = currentDayDisplayHeader;
-                    }
-                } else if (isSameDay(tempCal, yesterdayCal)) {
-                    currentDayDisplayHeader = "Yesterday, " + dayOfWeekFormat.format(tempCal.getTime());
-                } else {
-                    currentDayDisplayHeader = dayHeaderFormat.format(tempCal.getTime());
-                }
-                if (!uniqueDayHeadersInOrder.contains(currentDayDisplayHeader)) {
-                    uniqueDayHeadersInOrder.add(currentDayDisplayHeader);
+        if (isInitialLoad && journeysToDisplay != null && !journeysToDisplay.isEmpty()) {
+            if (todayDayHeaderKeyForExpansion.isEmpty()) {
+                List<JourneyDetails> reversedJourneys = new ArrayList<>(journeysToDisplay);
+                Collections.reverse(reversedJourneys);
+                for(JourneyDetails journey : reversedJourneys) {
+                    if (journey == null || journey.startTimeMs <= 0) continue;
+                    journeyCal.setTimeInMillis(journey.startTimeMs);
+                    if (isSameDay(journeyCal, todayCal)) { /* Already handled by todayDayHeaderKeyForExpansion */ }
+                    else if (isSameDay(journeyCal, yesterdayCal)) { mostRecentDayHeaderKeyForExpansion = "Yesterday, " + dayOfWeekFormat.format(journeyCal.getTime()); break; }
+                    else { mostRecentDayHeaderKeyForExpansion = dayHeaderFormat.format(journeyCal.getTime()); break; }
                 }
             }
-
-            if (!uniqueDayHeadersInOrder.isEmpty()) {
-                mostRecentDayHeaderKeyForExpansion = uniqueDayHeadersInOrder.get(uniqueDayHeadersInOrder.size() - 1);
-            }
-            String dayHeaderToExpand = !todayDayHeaderKeyForExpansion.isEmpty() ? todayDayHeaderKeyForExpansion : mostRecentDayHeaderKeyForExpansion;
-            for (String dayHeaderKey : uniqueDayHeadersInOrder) {
-                headerExpansionStates.put(dayHeaderKey, dayHeaderKey.equals(dayHeaderToExpand));
-            }
-            if (!dayHeaderToExpand.isEmpty()) {
-                Log.d(TAG, "Initial expansion: Day header '" + dayHeaderToExpand + "' will be expanded.");
+            if (mostRecentDayHeaderKeyForExpansion.isEmpty() && !journeysToDisplay.isEmpty()) {
+                JourneyDetails lastJourneyInOriginalOrder = journeysToDisplay.get(journeysToDisplay.size() - 1); // Original order is oldest first, so last is newest
+                if (lastJourneyInOriginalOrder != null && lastJourneyInOriginalOrder.startTimeMs > 0) {
+                    journeyCal.setTimeInMillis(lastJourneyInOriginalOrder.startTimeMs);
+                    if (isSameDay(journeyCal, todayCal)) mostRecentDayHeaderKeyForExpansion = "Today, " + dayOfWeekFormat.format(journeyCal.getTime());
+                    else if (isSameDay(journeyCal, yesterdayCal)) mostRecentDayHeaderKeyForExpansion = "Yesterday, " + dayOfWeekFormat.format(journeyCal.getTime());
+                    else mostRecentDayHeaderKeyForExpansion = dayHeaderFormat.format(journeyCal.getTime());
+                }
             }
         }
 
-        for (JourneyDetails journey : loadedJourneys) {
+
+        String dayHeaderToExpandInitially = !todayDayHeaderKeyForExpansion.isEmpty() ? todayDayHeaderKeyForExpansion : mostRecentDayHeaderKeyForExpansion;
+        if(isInitialLoad && dayHeaderToExpandInitially.isEmpty() && journeysToDisplay != null && !journeysToDisplay.isEmpty()){
+            // Fallback if still empty: use the header of the very first journey in the (already reversed for display) list
+            JourneyDetails firstDisplayJourney = journeysToDisplay.get(0);
+            if (firstDisplayJourney != null && firstDisplayJourney.startTimeMs > 0) {
+                journeyCal.setTimeInMillis(firstDisplayJourney.startTimeMs);
+                if (isSameDay(journeyCal, todayCal)) dayHeaderToExpandInitially = "Today, " + dayOfWeekFormat.format(journeyCal.getTime());
+                else if (isSameDay(journeyCal, yesterdayCal)) dayHeaderToExpandInitially = "Yesterday, " + dayOfWeekFormat.format(journeyCal.getTime());
+                else dayHeaderToExpandInitially = dayHeaderFormat.format(journeyCal.getTime());
+            }
+        }
+
+
+        for (JourneyDetails journey : journeysToDisplay) {
             if (journey == null || journey.startTimeMs <= 0) continue;
-
             journeyCal.setTimeInMillis(journey.startTimeMs);
-
             Calendar weekStartCal = (Calendar) journeyCal.clone();
             weekStartCal.setFirstDayOfWeek(Calendar.MONDAY);
             weekStartCal.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY);
-            weekStartCal.set(Calendar.HOUR_OF_DAY, 0);
-            weekStartCal.set(Calendar.MINUTE, 0);
-            weekStartCal.set(Calendar.SECOND, 0);
-            weekStartCal.set(Calendar.MILLISECOND, 0);
+            weekStartCal.set(Calendar.HOUR_OF_DAY, 0); weekStartCal.set(Calendar.MINUTE, 0); weekStartCal.set(Calendar.SECOND, 0); weekStartCal.set(Calendar.MILLISECOND, 0);
             String currentWeekHeaderKey = weekHeaderFormat.format(weekStartCal.getTime());
 
-            String currentDayDisplayHeader; // This is the text for the day header
-            if (isSameDay(journeyCal, todayCal)) {
-                currentDayDisplayHeader = "Today, " + dayOfWeekFormat.format(journeyCal.getTime());
-            } else if (isSameDay(journeyCal, yesterdayCal)) {
-                currentDayDisplayHeader = "Yesterday, " + dayOfWeekFormat.format(journeyCal.getTime());
-            } else {
-                currentDayDisplayHeader = dayHeaderFormat.format(journeyCal.getTime());
-            }
-            // The key for expansion state map is the display string of the day header
+            String currentDayDisplayHeader;
+            if (isSameDay(journeyCal, todayCal)) currentDayDisplayHeader = "Today, " + dayOfWeekFormat.format(journeyCal.getTime());
+            else if (isSameDay(journeyCal, yesterdayCal)) currentDayDisplayHeader = "Yesterday, " + dayOfWeekFormat.format(journeyCal.getTime());
+            else currentDayDisplayHeader = dayHeaderFormat.format(journeyCal.getTime());
             String currentDayExpansionKey = currentDayDisplayHeader;
 
-
             if (!currentWeekHeaderKey.equals(lastWeekHeaderKey)) {
-                listItemsWithHeaders.add(currentWeekHeaderKey); // Add Week Header String
+                listItemsWithHeaders.add(currentWeekHeaderKey);
                 lastWeekHeaderKey = currentWeekHeaderKey;
                 lastDayHeaderKey = "";
-                Log.d(TAG, "Added Week Header: " + currentWeekHeaderKey);
             }
-
             if (!currentDayExpansionKey.equals(lastDayHeaderKey)) {
-                // Create DayHeaderItem with modes for this day
                 Set<String> modesForThisDay = modesPerDay.getOrDefault(currentDayDisplayHeader, new HashSet<>());
                 DayHeaderItem dayHeader = new DayHeaderItem(currentDayDisplayHeader, modesForThisDay);
-                listItemsWithHeaders.add(dayHeader); // Add DayHeaderItem object
+                listItemsWithHeaders.add(dayHeader);
                 lastDayHeaderKey = currentDayExpansionKey;
-                headerExpansionStates.putIfAbsent(currentDayExpansionKey, false);
-                Log.d(TAG, "Added Day Header: " + currentDayDisplayHeader +
-                        ", Modes: " + modesForThisDay +
-                        ", Expanded: " + headerExpansionStates.get(currentDayExpansionKey));
+                if (isInitialLoad) {
+                    headerExpansionStates.put(currentDayExpansionKey, currentDayExpansionKey.equals(dayHeaderToExpandInitially));
+                } else {
+                    headerExpansionStates.putIfAbsent(currentDayExpansionKey, false);
+                }
             }
-
             Boolean isDayHeaderExpanded = headerExpansionStates.get(currentDayExpansionKey);
             if (isDayHeaderExpanded != null && isDayHeaderExpanded) {
                 listItemsWithHeaders.add(journey);
             }
         }
 
-        Log.i(TAG, "Finished grouping with weekly headers. List items with headers size: " + listItemsWithHeaders.size());
-
         if (journeyAdapter != null) {
-            journeyAdapter.updateJourneys(listItemsWithHeaders, headerExpansionStates);
+            journeyAdapter.updateJourneysWithPreviews(listItemsWithHeaders, headerExpansionStates, this.journeyPreviewFilePaths);
 
             if (listItemsWithHeaders.isEmpty()) {
                 emptyListTextView.setVisibility(View.VISIBLE);
@@ -317,73 +333,47 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
             } else {
                 emptyListTextView.setVisibility(View.GONE);
                 journeyRecyclerView.setVisibility(View.VISIBLE);
-
-                if (scrollToDefaultSection) {
-                    final String finalTargetScrollDayHeader = !todayDayHeaderKeyForExpansion.isEmpty() ? todayDayHeaderKeyForExpansion : mostRecentDayHeaderKeyForExpansion;
+                if (scrollToDefault && isInitialLoad) {
                     int targetScrollIndex = -1;
-
-                    if (!finalTargetScrollDayHeader.isEmpty()) {
+                    if (!dayHeaderToExpandInitially.isEmpty()) {
                         for (int i = 0; i < listItemsWithHeaders.size(); i++) {
                             Object item = listItemsWithHeaders.get(i);
-                            // Check if item is DayHeaderItem and its text matches
-                            if (item instanceof DayHeaderItem && ((DayHeaderItem) item).dateHeaderText.equals(finalTargetScrollDayHeader)) {
+                            if (item instanceof DayHeaderItem && ((DayHeaderItem) item).dateHeaderText.equals(dayHeaderToExpandInitially)) {
                                 targetScrollIndex = i;
                                 break;
                             }
                         }
-                    } else if (!listItemsWithHeaders.isEmpty() && listItemsWithHeaders.get(0) instanceof String) { // Week header
-                        // If no specific day, and first item is a week header, scroll to it.
-                        // Or find the first DayHeaderItem if that's preferred.
+                    } else if (!listItemsWithHeaders.isEmpty()){
+                        targetScrollIndex = 0; // Default to top if no specific day header found to expand
                         for (int i = 0; i < listItemsWithHeaders.size(); i++) {
-                            if (listItemsWithHeaders.get(i) instanceof DayHeaderItem) {
-                                targetScrollIndex = i;
-                                break;
-                            }
+                            if (listItemsWithHeaders.get(i) instanceof DayHeaderItem) {targetScrollIndex = i; break;}
                         }
-                        if(targetScrollIndex == -1 && !listItemsWithHeaders.isEmpty()) targetScrollIndex = 0; // Fallback to top
                     }
 
-
-                    Log.d(TAG, "Attempting to scroll (scrollToDefaultSection=true). TargetDayHeader: '" + finalTargetScrollDayHeader + "', TargetIndex: " + targetScrollIndex);
-
-                    if (targetScrollIndex != -1) {
-                        LinearLayoutManager layoutManager = (LinearLayoutManager) journeyRecyclerView.getLayoutManager();
-                        if (layoutManager != null) {
-                            final int finalScrollIndex = targetScrollIndex;
-                            boolean scrollToVeryEnd = finalTargetScrollDayHeader.equals(mostRecentDayHeaderKeyForExpansion) &&
-                                    headerExpansionStates.getOrDefault(mostRecentDayHeaderKeyForExpansion, false) &&
-                                    !listItemsWithHeaders.isEmpty();
-
-                            journeyRecyclerView.postDelayed(() -> {
-                                try {
-                                    int currentItemCount = layoutManager.getItemCount();
-                                    if (finalScrollIndex < currentItemCount) {
-                                        if (scrollToVeryEnd) {
-                                            layoutManager.scrollToPosition(listItemsWithHeaders.size() - 1);
-                                            Log.i(TAG, "Posted DELAYED scroll to END of list (target: " + finalTargetScrollDayHeader + ").");
-                                        } else {
-                                            layoutManager.scrollToPositionWithOffset(finalScrollIndex, 0);
-                                            Log.i(TAG, "Posted DELAYED scroll to target day header at index: " + finalScrollIndex);
-                                        }
-                                    } else {
-                                        Log.w(TAG, "Scroll cancelled: finalScrollIndex (" + finalScrollIndex + ") is out of bounds for currentItemCount (" + currentItemCount + ").");
-                                    }
-                                } catch (Exception e) {
-                                    Log.e(TAG, "Exception during delayed scroll execution", e);
+                    LinearLayoutManager layoutManager = (LinearLayoutManager) journeyRecyclerView.getLayoutManager();
+                    if (layoutManager != null && targetScrollIndex != -1 && targetScrollIndex < listItemsWithHeaders.size()) {
+                        final int finalScrollIndex = targetScrollIndex;
+                        journeyRecyclerView.postDelayed(() -> {
+                            try {
+                                if (finalScrollIndex < layoutManager.getItemCount()) {
+                                    layoutManager.scrollToPositionWithOffset(finalScrollIndex, 0);
+                                    Log.i(TAG, "Scrolled to initial section at index: " + finalScrollIndex);
+                                } else {
+                                    Log.w(TAG, "Delayed scroll: finalScrollIndex " + finalScrollIndex + " out of bounds for item count " + layoutManager.getItemCount());
                                 }
-                            }, 150);
-                        }
+                            } catch (Exception e) {
+                                Log.e(TAG, "Exception during delayed scroll", e);
+                            }
+                        }, 150);
                     }
                 }
             }
-        } else {
-            Log.e(TAG, "displayGroupedJourneys: journeyAdapter is null! Cannot display list.");
         }
-
-        if (scrollToDefaultSection) {
+        if (isInitialLoad) {
             isInitialLoad = false;
         }
     }
+
 
     private boolean isSameDay(Calendar cal1, Calendar cal2) {
         if (cal1 == null || cal2 == null) {
@@ -393,25 +383,26 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
                 cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR);
     }
 
+    @Override
     public void onHeaderClicked(String headerDate) {
         Boolean currentState = headerExpansionStates.get(headerDate);
         if (currentState != null) {
             headerExpansionStates.put(headerDate, !currentState);
             Log.d(TAG, "Header '" + headerDate + "' toggled to: " + !currentState);
-            isInitialLoad = false; // User interaction, not initial load
+            isInitialLoad = false;
             if (this.journeyDetailsList != null) {
-                displayGroupedJourneys(new ArrayList<>(this.journeyDetailsList), false);
+                displayGroupedJourneysWithPreviews(new ArrayList<>(this.journeyDetailsList), false);
             }
         }
     }
 
     private void saveJourneyMetadataInBackground(JourneyDetails details) {
         if (details == null) {
-            Log.e(TAG, "saveJourneyMetadataInBackground (JourneyListActivity): Cannot save, details object is null.");
+            Log.e(TAG, "saveJourneyMetadataInBackground : Cannot save, details object is null.");
             return;
         }
         if (details.sourceFilenames == null || details.sourceFilenames.isEmpty()) {
-            Log.e(TAG, "Cannot save metadata for journey " + details.startTimeMs + " (JourneyListActivity), sourceFilenames list is missing or empty.");
+            Log.e(TAG, "Cannot save metadata for journey " + details.startTimeMs + ", sourceFilenames list is missing or empty.");
             return;
         }
 
@@ -423,27 +414,27 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
                 details.matchedShape
         );
         final String metaFilename = "journey_meta_" + details.startTimeMs + ".json";
-        Log.d(TAG, "saveJourneyMetadataInBackground (JourneyListActivity): Queuing save for " + metaFilename +
+        Log.d(TAG, "saveJourneyMetadataInBackground: Queuing save for " + metaFilename +
                 " with Name: " + metadataToSave.getName() +
                 ", Matched: " + metadataToSave.isMapMatched() +
                 ", Shape: " + (metadataToSave.getMatchedShape() != null ? "Present" : "Null"));
 
-
         backgroundExecutor.execute(() -> {
-            File directory = getExternalFilesDir(null);
+            File directory = getFilesDir();
             if (directory == null) {
-                Log.e(TAG, "Cannot save metadata (JourneyListActivity): External directory is null.");
-                mainThreadHandler.post(()-> Toast.makeText(JourneyListActivity.this, "Error accessing storage", Toast.LENGTH_SHORT).show());
+                Log.e(TAG, "Cannot save metadata: Internal files directory is null.");
+                mainThreadHandler.post(()-> Toast.makeText(JourneyListActivity.this, "Error accessing storage for saving metadata", Toast.LENGTH_SHORT).show());
                 return;
             }
+
             File metaFile = new File(directory, metaFilename);
 
             try (java.io.FileWriter writer = new java.io.FileWriter(metaFile)) {
                 gson.toJson(metadataToSave, writer);
-                Log.i(TAG, "Successfully updated journey metadata in " + metaFilename + " (JourneyListActivity) with name: " + metadataToSave.getName() + ", Matched: " + metadataToSave.isMapMatched());
+                Log.i(TAG, "Successfully updated journey metadata in " + metaFile.getAbsolutePath() + " with name: " + metadataToSave.getName() + ", Matched: " + metadataToSave.isMapMatched());
             } catch (Exception e) {
-                Log.e(TAG, "Error saving updated journey metadata to " + metaFilename + " (JourneyListActivity)", e);
-                mainThreadHandler.post(()-> Toast.makeText(JourneyListActivity.this, "Error saving name", Toast.LENGTH_SHORT).show());
+                Log.e(TAG, "Error saving updated journey metadata to " + metaFile.getAbsolutePath(), e);
+                mainThreadHandler.post(()-> Toast.makeText(JourneyListActivity.this, "Error saving journey name", Toast.LENGTH_SHORT).show());
             }
         });
     }
@@ -472,64 +463,281 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
     }
 
     private void loadJourneysInBackground() {
-        Log.d(TAG, "loadJourneysInBackground: Starting background load...");
+        if (isLoadingJourneys.getAndSet(true)) {
+            Log.d(TAG, "loadJourneysInBackground: Already loading. Skipping.");
+            return;
+        }
+        Log.i(TAG, "loadJourneysInBackground: Starting background load and preview generation...");
         isInitialLoad = true;
 
+        journeyPreviewFilePaths.clear();
+
         backgroundExecutor.execute(() -> {
-            File directory = getExternalFilesDir(null);
-            if (directory != null) {
-                Log.d(TAG, "Loading from directory: " + directory.getAbsolutePath());
-            } else {
-                Log.e(TAG, "Failed to get external files directory!");
-                mainThreadHandler.post(() -> {
-                    Toast.makeText(JourneyListActivity.this, "Error accessing storage", Toast.LENGTH_SHORT).show();
-                    updateUiWithJourneys(new ArrayList<>());
-                });
-                return;
-            }
-
-            File[] files = directory.listFiles((dir, name) -> name.startsWith("polyline_data_") && name.endsWith(".json"));
-            Log.d(TAG, "Found " + (files != null ? files.length : "null array or 0") + " polyline_data_*.json files.");
-
-            List<SegmentData> loadedSegments = new ArrayList<>();
-            if (files != null && files.length > 0) {
-                for (File file : files) {
-                    try (FileReader reader = new FileReader(file)) {
-                        Type listType = new TypeToken<List<PolylinePoint>>() {}.getType();
-                        List<PolylinePoint> loadedPoints = gson.fromJson(reader, listType);
-                        if (loadedPoints != null && !loadedPoints.isEmpty()) {
-                            loadedSegments.add(new SegmentData(loadedPoints, file.getName()));
-                        } else {
-                            Log.w(TAG, "Loaded file " + file.getName() + " but points list was null or empty.");
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error loading/parsing file " + file.getName(), e);
+            try {
+                File segmentDataDirectory = getExternalFilesDir(null);
+                if (segmentDataDirectory == null) {
+                    Log.w(TAG, "External files directory is null. Trying internal for segments as fallback.");
+                    segmentDataDirectory = getFilesDir();
+                    if (segmentDataDirectory == null) {
+                        Log.e(TAG, "Failed to get any suitable directory for loading segments!");
+                        mainThreadHandler.post(() -> {
+                            Toast.makeText(JourneyListActivity.this, "Error accessing storage for journey data", Toast.LENGTH_SHORT).show();
+                            updateUiWithJourneys(new ArrayList<>());
+                        });
+                        isLoadingJourneys.set(false);
+                        return;
                     }
                 }
-                Collections.sort(loadedSegments, (s1, s2) -> Long.compare(s1.getStartTime(), s2.getStartTime()));
-                Log.d(TAG, "Sorted loadedSegments OLDEST first.");
+
+                List<SegmentData> loadedSegments = new ArrayList<>();
+                File[] files = segmentDataDirectory.listFiles((dir, name) -> name.startsWith("polyline_data_") && name.endsWith(".json"));
+                if (files != null && files.length > 0) {
+                    for (File file : files) {
+                        try (FileReader reader = new FileReader(file)) {
+                            Type listType = new TypeToken<List<PolylinePoint>>() {}.getType();
+                            List<PolylinePoint> pointsList = gson.fromJson(reader, listType);
+                            if (pointsList != null && !pointsList.isEmpty()) {
+                                loadedSegments.add(new SegmentData(pointsList, file.getName()));
+                            }
+                        } catch (Exception e) {
+                            Log.e(TAG, "Error loading/parsing segment file " + file.getName(), e);
+                        }
+                    }
+                    Collections.sort(loadedSegments);
+                    Log.d(TAG, "Loaded and sorted " + loadedSegments.size() + " segments from " + segmentDataDirectory.getAbsolutePath());
+                } else {
+                    Log.i(TAG, "No polyline_data files found in " + segmentDataDirectory.getAbsolutePath());
+                }
+
+                final List<JourneyDetails> finalJourneys = processSegmentsIntoJourneys(loadedSegments);
+                Log.d(TAG, "Processed into " + finalJourneys.size() + " final journeys.");
+
+                if (!finalJourneys.isEmpty()) {
+                    Log.d(TAG, "Starting snapshot generation for " + finalJourneys.size() + " journeys...");
+                    for (JourneyDetails journey : finalJourneys) {
+                        if (journey == null) {
+                            Log.w(TAG, "Null journey encountered during snapshot generation loop. Skipping.");
+                            continue;
+                        }
+                        generateAndSaveMapPreviewSynchronously(journey);
+                    }
+                    Log.d(TAG, "Finished snapshot generation attempts.");
+                }
+
+                mainThreadHandler.post(() -> {
+                    updateUiWithJourneys(finalJourneys);
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "Unhandled exception in loadJourneysInBackground", e);
+                mainThreadHandler.post(() -> Toast.makeText(JourneyListActivity.this, "Error loading journeys", Toast.LENGTH_SHORT).show());
+            } finally {
+                isLoadingJourneys.set(false);
+                Log.i(TAG, "loadJourneysInBackground: Background task finished.");
             }
-            Log.d(TAG, "Finished loading files. loadedSegments size: " + loadedSegments.size());
-
-            final List<JourneyDetails> finalJourneys = processSegmentsIntoJourneys(loadedSegments);
-            Log.d(TAG, "Finished processing segments. Final combined journeys count: " + finalJourneys.size());
-
-            mainThreadHandler.post(() -> {
-                updateUiWithJourneys(finalJourneys);
-            });
         });
+    }
+
+    private void generateAndSaveMapPreviewSynchronously(JourneyDetails journey) {
+        if (journey == null || journey.points == null || journey.points.isEmpty()) {
+            Log.w(TAG, "Skipping preview generation for null or empty journey (ID: " + (journey != null ? journey.startTimeMs : "null") + ")");
+            return;
+        }
+
+        File internalFilesDir = getFilesDir();
+        if (internalFilesDir == null) {
+            Log.e(TAG, "Failed to get internal files directory for previews.");
+            return;
+        }
+        File previewDir = new File(internalFilesDir, PREVIEW_SUBDIR);
+        if (!previewDir.exists()) {
+            if (!previewDir.mkdirs()) {
+                Log.e(TAG, "Failed to create preview directory: " + previewDir.getAbsolutePath());
+                return;
+            }
+        }
+        File previewFile = new File(previewDir, "preview_journey_" + journey.startTimeMs + ".png");
+
+        if (previewFile.exists()) {
+            Log.d(TAG, "Preview already exists for journey " + journey.startTimeMs + ": " + previewFile.getAbsolutePath());
+            journeyPreviewFilePaths.put(journey.startTimeMs, previewFile.getAbsolutePath());
+            return;
+        }
+
+        List<PolylinePoint> points = journey.points;
+
+        LatLngBounds.Builder boundsBuilder = new LatLngBounds.Builder();
+        boolean hasValidPoint = false;
+        for (PolylinePoint p : points) {
+            if (p != null) {
+                boundsBuilder.include(new org.maplibre.android.geometry.LatLng(p.latitude, p.longitude));
+                hasValidPoint = true;
+            }
+        }
+        if (!hasValidPoint) {
+            Log.w(TAG, "No valid points to generate preview for journey " + journey.startTimeMs);
+            return;
+        }
+
+        LatLngBounds journeyBounds;
+        try {
+            journeyBounds = boundsBuilder.build();
+        } catch (IllegalStateException e) {
+            Log.w(TAG, "Error building LatLngBounds for journey " + journey.startTimeMs + ". Likely too few distinct points. Message: " + e.getMessage());
+            if (points.size() >= 1 && points.get(0) != null) {
+                PolylinePoint firstPoint = points.get(0);
+                double smallOffset = 0.001;
+                LatLng center = new LatLng(firstPoint.latitude, firstPoint.longitude);
+                try {
+                    journeyBounds = new LatLngBounds.Builder()
+                            .include(new LatLng(center.getLatitude() + smallOffset, center.getLongitude() + smallOffset))
+                            .include(new LatLng(center.getLatitude() - smallOffset, center.getLongitude() - smallOffset))
+                            .build();
+                    Log.d(TAG, "Built fallback bounds for single/co-located point journey: " + journey.startTimeMs);
+                } catch (IllegalStateException ex) {
+                    Log.e(TAG, "Failed to build even fallback bounds for journey " + journey.startTimeMs, ex);
+                    return;
+                }
+            } else {
+                return;
+            }
+        }
+
+        int previewWidthPx = (int) (300 * getResources().getDisplayMetrics().density);
+        int previewHeightPx = Math.round(180 * getResources().getDisplayMetrics().density);
+
+        SharedPreferences prefs = getSharedPreferences("Settings", MODE_PRIVATE);
+        String styleIdentifier = prefs.getString(SettingsActivity.KEY_MAP_STYLE_IDENTIFIER, SettingsActivity.DEFAULT_MAP_STYLE);
+        String styleUrl = MapManager.getStyleUrl(styleIdentifier);
+        if (styleUrl == null) {
+            Log.w(TAG, "Map style URL is null for snapshot. Using default. Identifier: " + styleIdentifier);
+            styleUrl = MapManager.getStyleUrl(SettingsActivity.DEFAULT_MAP_STYLE);
+            if (styleUrl == null) {
+                Log.e(TAG, "Default Map style URL is also null. Using absolute fallback for snapshot.");
+                styleUrl = "https://demotiles.maplibre.org/style.json";
+            }
+        }
+
+        final MapSnapshotter.Options options = new MapSnapshotter.Options(previewWidthPx, previewHeightPx)
+                .withStyle(styleUrl)
+                .withRegion(journeyBounds)
+                .withLogo(false);
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final Bitmap[] snapshotResult = new Bitmap[1];
+        final String[] snapshotErrorString = new String[1];
+
+        Log.d(TAG, "Preparing to start snapshot for journey " + journey.startTimeMs + " on UI thread.");
+
+        final String finalStyleUrl = styleUrl;
+        mainThreadHandler.post(() -> {
+            try {
+                Log.d(TAG, "Instantiating MapSnapshotter on UI thread for journey " + journey.startTimeMs + " with style: " + finalStyleUrl);
+                MapSnapshotter snapshotter = new MapSnapshotter(getApplicationContext(), options); // Use ApplicationContext
+                Log.d(TAG, "Starting snapshot on UI thread for journey " + journey.startTimeMs);
+                snapshotter.start(snapshot -> {
+                    if (snapshot != null) {
+                        snapshotResult[0] = snapshot.getBitmap();
+                        Log.d(TAG, "Snapshot received (UI thread) for journey " + journey.startTimeMs);
+                    } else {
+                        Log.e(TAG, "Snapshot object is null (UI thread) for journey " + journey.startTimeMs);
+                    }
+                    latch.countDown();
+                }, errorMsg -> {
+                    snapshotErrorString[0] = errorMsg;
+                    Log.e(TAG, "MapSnapshotter error (UI thread) for journey " + journey.startTimeMs + ": " + errorMsg);
+                    latch.countDown();
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "Exception when trying to start MapSnapshotter on UI thread for " + journey.startTimeMs, e);
+                snapshotErrorString[0] = "Snapshotter init/start failed: " + e.getMessage();
+                latch.countDown();
+            }
+        });
+
+
+        try {
+            Log.d(TAG, "Background thread waiting for snapshot latch for journey " + journey.startTimeMs);
+            latch.await();
+            Log.d(TAG, "Background thread latch released for journey " + journey.startTimeMs);
+        } catch (InterruptedException e) {
+            Log.e(TAG, "Snapshot generation interrupted while waiting for latch (journey " + journey.startTimeMs + ")", e);
+            Thread.currentThread().interrupt();
+            return;
+        }
+
+        if (snapshotErrorString[0] != null || snapshotResult[0] == null) {
+            Log.e(TAG, "Failed to generate basemap snapshot for journey " + journey.startTimeMs + ". Error: " + snapshotErrorString[0]);
+            return;
+        }
+
+        Bitmap basemapBitmap = snapshotResult[0];
+        Bitmap mutableBasemap = null;
+        try {
+            mutableBasemap = basemapBitmap.copy(Bitmap.Config.ARGB_8888, true);
+        } catch (OutOfMemoryError oom) {
+            Log.e(TAG, "OutOfMemoryError copying basemap bitmap for journey " + journey.startTimeMs, oom);
+            if (basemapBitmap != null && !basemapBitmap.isRecycled()) {
+                basemapBitmap.recycle();
+            }
+            return;
+        } finally {
+            if (basemapBitmap != null && !basemapBitmap.isRecycled() && mutableBasemap != basemapBitmap) {
+                basemapBitmap.recycle();
+                Log.d(TAG, "Recycled original snapshot bitmap after copy for journey " + journey.startTimeMs);
+            } else if (basemapBitmap != null && !basemapBitmap.isRecycled() && mutableBasemap == null) {
+                basemapBitmap.recycle();
+                Log.d(TAG, "Recycled original snapshot bitmap as copy failed for journey " + journey.startTimeMs);
+            }
+        }
+
+        if (mutableBasemap == null) {
+            Log.e(TAG, "Mutable basemap is null, cannot draw polyline for journey " + journey.startTimeMs);
+            return;
+        }
+
+        int polylineColor = JourneyListActivity.getColorForTransportMode(this, journey.getDominantMode());
+        float polylineWidthPx = 3f * getResources().getDisplayMetrics().density;
+
+        Bitmap finalPreview = MapPreviewGenerator.drawPolylineOnBasemap(mutableBasemap, points, polylineColor, polylineWidthPx);
+
+        if (finalPreview != null) {
+            try (FileOutputStream out = new FileOutputStream(previewFile)) {
+                finalPreview.compress(Bitmap.CompressFormat.PNG, 90, out);
+                Log.i(TAG, "Saved final preview for journey " + journey.startTimeMs + " to: " + previewFile.getAbsolutePath());
+                journeyPreviewFilePaths.put(journey.startTimeMs, previewFile.getAbsolutePath());
+            } catch (IOException e) {
+                Log.e(TAG, "Error saving final preview for journey " + journey.startTimeMs, e);
+            } catch (Exception e) {
+                Log.e(TAG, "Unexpected error saving final preview for " + journey.startTimeMs, e);
+            } finally {
+                if (finalPreview != null && !finalPreview.isRecycled()) {
+                    finalPreview.recycle();
+                    Log.d(TAG, "Recycled final preview bitmap for journey " + journey.startTimeMs);
+                }
+            }
+        } else {
+            Log.e(TAG, "Failed to draw polyline on basemap for journey " + journey.startTimeMs + " (finalPreview was null).");
+            if (mutableBasemap != null && !mutableBasemap.isRecycled()) {
+                mutableBasemap.recycle();
+                Log.d(TAG, "Recycled mutableBasemap as finalPreview was null for journey " + journey.startTimeMs);
+            }
+        }
+    }
+
+    private void updateUiWithJourneys(List<JourneyDetails> finalJourneys) {
+        this.journeyDetailsList.clear();
+        if (finalJourneys != null) {
+            this.journeyDetailsList.addAll(finalJourneys);
+        }
+        displayGroupedJourneysWithPreviews(new ArrayList<>(this.journeyDetailsList), isInitialLoad);
     }
 
 
     private JourneyDetails calculateJourneyDetailsInternal(List<PolylinePoint> journeyPoints, List<String> sourceFilenames) {
-        Log.d(TAG, "calculateJourneyDetailsInternal: Method started for journey with " + (journeyPoints != null ? journeyPoints.size() : "null") + " points.");
-
         if (journeyPoints == null || journeyPoints.isEmpty()) {
             Log.w(TAG, "calculateJourneyDetailsInternal: Received null or empty points list.");
             return new JourneyDetails(0, 0, 0f,
-                    new HashMap<String, Long>(),
-                    new ArrayList<String>(),
-                    new ArrayList<PolylinePoint>(),
+                    new HashMap<>(), new ArrayList<>(), new ArrayList<>(),
                     null, 0f, false, null);
         }
 
@@ -571,8 +779,8 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
             }
         }
 
-        float averageAccuracy = (validAccuracyCount > 0) ? (accuracySum / validAccuracyCount) : 0f;
-        Log.d("AccuracyDebug", "JourneyListActivity.calculateJourneyDetailsInternal: Final Avg Accuracy=" + averageAccuracy + " (Sum=" + accuracySum + ", Count=" + validAccuracyCount + ")");
+        float averageAccuracy = (validAccuracyCount > 0) ? (accuracySum / validAccuracyCount) : -1f;
+        Log.d("AccuracyDebug", "JourneyListActivity.calcDetailsInternal: AvgAcc=" + averageAccuracy);
 
         String loadedJourneyName = null;
         boolean loadedMapMatched = false;
@@ -581,6 +789,9 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
         if (startTime > 0) {
             String metaFilename = "journey_meta_" + startTime + ".json";
             File directory = getExternalFilesDir(null);
+            if (directory == null) directory = getFilesDir();
+
+
             if (directory != null) {
                 File metaFile = new File(directory, metaFilename);
                 if (metaFile.exists()) {
@@ -590,12 +801,13 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
                             loadedJourneyName = metadata.getName();
                             loadedMapMatched = metadata.isMapMatched();
                             loadedMatchedShape = metadata.getMatchedShape();
-                            Log.d(TAG, "Loaded metadata from " + metaFilename + ": Name='" + loadedJourneyName + "', Matched=" + loadedMapMatched);
                         }
                     } catch (Exception e) {
                         Log.e(TAG, "Error reading metadata file " + metaFilename, e);
                     }
                 }
+            } else {
+                Log.w(TAG, "Storage directory for metadata is null.");
             }
         }
         return new JourneyDetails(startTime, endTime, totalDistance, durationPerMode,
@@ -612,12 +824,12 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
     }
 
     public static int getColorForTransportMode(Context context, String transportMode) {
-        if (transportMode == null) return Color.DKGRAY;
+        if (transportMode == null) return Color.DKGRAY; // Default dark gray
         switch (transportMode) {
-            case "Walking":    return Color.GREEN;
-            case "Bicycling":  return Color.BLUE;
-            case "In Vehicle": return Color.RED;
-            default:           return Color.DKGRAY;
+            case "Walking":    return Color.parseColor("#4CAF50"); // Material Green 500
+            case "Bicycling":  return Color.parseColor("#2196F3"); // Material Blue 500
+            case "In Vehicle": return Color.parseColor("#F44336"); // Material Red 500
+            default:           return Color.parseColor("#757575"); // Material Grey 600
         }
     }
 
@@ -625,28 +837,20 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
     protected void onDestroy() {
         super.onDestroy();
         if (backgroundExecutor != null && !backgroundExecutor.isShutdown()) {
+            Log.d(TAG, "Shutting down backgroundExecutor in onDestroy.");
             backgroundExecutor.shutdown();
         }
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        Log.d(TAG, "onResume: Triggering reload of journey list data.");
-        isInitialLoad = true; // Reset for default collapse/scroll on resume
-        loadJourneysInBackground();
-    }
-
-
     private List<JourneyDetails> processSegmentsIntoJourneys(List<SegmentData> sortedSegments) {
-        Log.d(TAG, "processSegmentsIntoJourneys: Processing " + (sortedSegments != null ? sortedSegments.size() : 0) + " segments (oldest first).");
+        Log.d(TAG, "processSegmentsIntoJourneys: Processing " + (sortedSegments != null ? sortedSegments.size() : 0) + " segments.");
         List<JourneyDetails> finalProcessedJourneys = new ArrayList<>();
         if (sortedSegments == null || sortedSegments.isEmpty()) {
             return finalProcessedJourneys;
         }
 
-        final long MAX_TIME_GAP_MS = 10 * 60 * 1000;
-        final float MAX_DISTANCE_GAP_METERS = 500.0f;
+        final long MAX_TIME_GAP_MS = 10 * 60 * 1000; // 10 minutes
+        final float MAX_DISTANCE_GAP_METERS = 750.0f; // Adjusted distance gap, was 500
 
         List<PolylinePoint> currentJourneyPoints = new ArrayList<>();
         List<String> currentJourneyFilenames = new ArrayList<>();
@@ -654,7 +858,7 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
 
         for (SegmentData currentSegment : sortedSegments) {
             if (currentSegment == null || currentSegment.getPoints() == null || currentSegment.getPoints().isEmpty()) {
-                Log.w(TAG, "Skipping null or empty segment in processSegmentsIntoJourneys.");
+                Log.w(TAG, "Skipping null or empty segment.");
                 continue;
             }
 
@@ -672,13 +876,18 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
 
                     boolean timeAndDistanceOk = (timeGap >= 0 && timeGap <= MAX_TIME_GAP_MS &&
                             distanceGap <= MAX_DISTANCE_GAP_METERS);
-                    boolean connect = false;
 
+                    boolean connect = false;
                     if (timeAndDistanceOk) {
-                        if (!previousMode.equals("Unknown") && previousMode.equals(nextMode)) {
+                        // Connect if primary modes match OR if one is primary and other is transient
+                        if (isPrimaryMode(previousMode) && previousMode.equals(nextMode)) {
                             connect = true;
                         } else if ((isPrimaryMode(previousMode) && isTransientMode(nextMode)) ||
                                 (isTransientMode(previousMode) && isPrimaryMode(nextMode))) {
+                            // If connecting transient to primary, the primary mode dominates for continuity
+                            connect = true;
+                        } else if (isTransientMode(previousMode) && isTransientMode(nextMode)){
+                            // Connect two transient segments (e.g. Still -> Unknown)
                             connect = true;
                         }
                     }
@@ -706,21 +915,9 @@ public class JourneyListActivity extends AppCompatActivity implements com.exampl
                 finalProcessedJourneys.add(details);
             }
         }
-        Log.i(TAG,"Finished processing segments. Created " + finalProcessedJourneys.size() + " final journeys (oldest first).");
+        Log.i(TAG,"Finished processing segments. Created " + finalProcessedJourneys.size() + " final journeys.");
+        Collections.reverse(finalProcessedJourneys); // Newest first
+        Log.i(TAG,"Reversed final journey list for display.");
         return finalProcessedJourneys;
-    }
-
-    private void updateUiWithJourneys(List<JourneyDetails> finalJourneys) {
-        this.journeyDetailsList.clear();
-        if (finalJourneys != null) {
-            this.journeyDetailsList.addAll(finalJourneys);
-        }
-        // Pass true for scrollToDefaultSection only when updating UI after initial load or full refresh
-        displayGroupedJourneys(new ArrayList<>(this.journeyDetailsList), true); // MODIFIED
-
-        int adapterItemCount = (journeyAdapter != null) ? journeyAdapter.getItemCount() : -1;
-        Log.d(TAG, "Final UI Update: Adapter getItemCount() = " + adapterItemCount +
-                ", emptyListTextView visibility = " + (emptyListTextView.getVisibility() == View.VISIBLE ? "VISIBLE" : "GONE") +
-                ", journeyRecyclerView visibility = " + (journeyRecyclerView.getVisibility() == View.VISIBLE ? "VISIBLE" : "GONE"));
     }
 }
