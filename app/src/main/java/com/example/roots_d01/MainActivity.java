@@ -247,6 +247,10 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private MaterialButton viewJourneysButton; // Changed from Button?
     private MaterialButton btnToggleHeatmap; // Changed from Button?
     private Chip chipWalk, chipBike, chipVehicle; // Add chipAll if used
+    private boolean mainActivityJourneysEverLoaded = false;
+    private boolean mainActivityForceRefreshJourneys = true; // Initialize to true for the very first load
+    private static final String TAG_HEATMAP = "HeatmapData"; // For logging related to heatmap
+
 
 
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -3526,161 +3530,135 @@ private void navigateJourney(int direction) {
         return needsMatch;
     }
 
-    @Override
     public void onJourneysLoaded(List<SegmentData> sortedSegments, boolean forceRematch) {
-        final String TAG_LOAD = "JourneyDisplay";
-        final String TAG_MATCH_CHECK = "JourneyDisplay";
-        final String TAG_HEATMAP = "HeatmapData"; // Specific tag for heatmap logic
+        final String TAG_LOAD_CB = "JourneyDisplayCallback"; // Specific tag for this callback
+        Log.i(TAG_LOAD, ">>> MainActivity.onJourneysLoaded: CALLBACK RECEIVED! Segments: " + (sortedSegments != null ? sortedSegments.size() : "null") + ", forceRematch=" + forceRematch);
 
-        Log.i(TAG_LOAD, ">>> MainActivity.onJourneysLoaded: CALLBACK RECEIVED! Segments: " + (sortedSegments != null ? sortedSegments.size() : "null") + ", forceRematch=" + forceRematch); // <-- ADD THIS LINE
-
-        // --- Basic Null/Empty Checks & Map/Style Check ---
         if (mapView == null || mapManager == null || maplibreMap == null) {
-            Log.e(TAG_LOAD, "onJourneysLoaded (Variable Weighting): Map components are null, stopping display process.");
+            Log.e(TAG_LOAD, "onJourneysLoaded: Map components are null, stopping display process.");
             onJourneyLoadError("Map components not ready");
-            isJourneyDataLoaded = true;
+            isJourneyDataLoaded = true; // Still mark as attempted
             return;
         }
         Style style = maplibreMap.getStyle();
         if (style == null || !style.isFullyLoaded()) {
-            Log.e(TAG_LOAD, "onJourneysLoaded (Variable Weighting): Style not ready, stopping display process.");
+            Log.e(TAG_LOAD, "onJourneysLoaded: Style not ready, stopping display process.");
             onJourneyLoadError("Map style not ready");
-            isJourneyDataLoaded = true;
+            isJourneyDataLoaded = true; // Still mark as attempted
             return;
         }
 
-        // --- Clear Previous Data ---
-        Log.d(TAG_LOAD, "onJourneysLoaded (Variable Weighting): Clearing previous overlays and data...");
+        Log.d(TAG_LOAD, "onJourneysLoaded: Clearing previous overlays and data...");
         clearAllHistoricalOverlays();
-        displayedJourneyDetailsList.clear();
+        displayedJourneyDetailsList.clear(); // Clear the list of details for displayed journeys
 
-        // --- Handle Empty Segments ---
         if (sortedSegments == null || sortedSegments.isEmpty()) {
-            Log.i(TAG_LOAD, "onJourneysLoaded (Variable Weighting): No segments found to process.");
-            mapView.invalidate();
+            Log.i(TAG_LOAD, "onJourneysLoaded: No segments found to process.");
+            mapView.invalidate(); // Refresh map
             if (heatmapToggleManager != null) {
                 heatmapToggleManager.updateHeatmapData(FeatureCollection.fromFeatures(new ArrayList<>()));
-                Log.i(TAG_HEATMAP, "Updated heatmap with empty collection as no segments were loaded.");
             }
-            isJourneyDataLoaded = true;
+            isJourneyDataLoaded = true; // Mark as loaded, even if empty
+            mainActivityJourneysEverLoaded = true; // No journeys, but loading process completed
+            mainActivityForceRefreshJourneys = false; // Reset refresh flag
             return;
         }
-        Log.i(TAG_LOAD, "onJourneysLoaded (Variable Weighting): Processing " + sortedSegments.size() + " raw segments...");
 
+        Log.i(TAG_LOAD, "onJourneysLoaded: Processing " + sortedSegments.size() + " raw segments...");
 
-        // <<< --- START: VARIABLE WEIGHT HEATMAP DATA AGGREGATION (GRID METHOD) --- >>>
-        Log.d(TAG_HEATMAP, "Starting variable weight heatmap data aggregation...");
-
-        // 1. Define Grid Precision (Number of decimal places for lat/lon)
-        // Higher value = finer grid = less aggregation = closer to original density map
-        // Lower value = coarser grid = more aggregation = weights reflect frequency more strongly
-        final int GRID_PRECISION = 5; // e.g., ~1.1 meter precision. Adjust as needed (4 = ~11m, 3 = ~111m)
+        // --- Heatmap Data Aggregation (Variable Weighting) ---
+        final int GRID_PRECISION = 5;
         final double factor = Math.pow(10, GRID_PRECISION);
-
-        // 2. Data Structures for Aggregation
-        // Map: Grid Cell Key (String) -> Count (Integer)
         Map<String, Integer> pointCounts = new HashMap<>();
-        // Map: Grid Cell Key (String) -> Representative Point (MapLibre Point)
         Map<String, Point> representativePoints = new HashMap<>();
+        int totalPointsProcessedForHeatmap = 0;
 
-        // 3. Iterate and Aggregate Points
-        int totalPointsProcessed = 0;
         for (SegmentData segment : sortedSegments) {
             if (segment != null && segment.getPoints() != null) {
                 for (PolylinePoint point : segment.getPoints()) {
                     if (point != null) {
-                        totalPointsProcessed++;
-                        // Round lat/lon to create grid cell key
+                        totalPointsProcessedForHeatmap++;
                         double roundedLat = Math.round(point.latitude * factor) / factor;
                         double roundedLon = Math.round(point.longitude * factor) / factor;
-                        // Create a unique key for the grid cell
-                        String formatString = String.format(Locale.US, "%%.%df_%%.%df", GRID_PRECISION, GRID_PRECISION); // Creates "%.5f_%.5f" if GRID_PRECISION is 5
+                        String formatString = String.format(Locale.US, "%%.%df_%%.%df", GRID_PRECISION, GRID_PRECISION);
                         String gridKey = String.format(Locale.US, formatString, roundedLat, roundedLon);
-                        // Increment count for this cell
                         pointCounts.put(gridKey, pointCounts.getOrDefault(gridKey, 0) + 1);
-
-                        // Store the first point encountered in this cell as its representative geometry
-                        // (More advanced: calculate centroid, but this is simpler)
                         if (!representativePoints.containsKey(gridKey)) {
                             try {
                                 representativePoints.put(gridKey, Point.fromLngLat(point.longitude, point.latitude));
                             } catch (Exception e) {
-                                Log.e(TAG_HEATMAP, "Error creating representative point for key " + gridKey, e);
+                                Log.e(TAG_HEATMAP, "Error creating representative point for heatmap key " + gridKey, e);
                             }
                         }
                     }
                 }
             }
         }
-        Log.d(TAG_HEATMAP, "Aggregated " + totalPointsProcessed + " raw points into " + pointCounts.size() + " grid cells (Precision: " + GRID_PRECISION + ").");
-
-        // 4. Create Weighted Features
+        Log.d(TAG_HEATMAP, "Aggregated " + totalPointsProcessedForHeatmap + " raw points into " + pointCounts.size() + " grid cells for heatmap.");
         List<Feature> heatmapFeatures = new ArrayList<>();
         for (Map.Entry<String, Integer> entry : pointCounts.entrySet()) {
             String gridKey = entry.getKey();
-            int count = entry.getValue(); // This is our weight
+            int count = entry.getValue();
             Point representativePoint = representativePoints.get(gridKey);
-
             if (representativePoint != null && count > 0) {
                 try {
                     Feature feature = Feature.fromGeometry(representativePoint);
-                    feature.addNumberProperty("weight", count); // Use count as weight
+                    feature.addNumberProperty("weight", count);
                     heatmapFeatures.add(feature);
                 } catch (Exception e) {
-                    Log.e(TAG_HEATMAP, "Error creating weighted feature for key " + gridKey, e);
+                    Log.e(TAG_HEATMAP, "Error creating weighted heatmap feature for key " + gridKey, e);
                 }
-            } else {
-                Log.w(TAG_HEATMAP, "Skipping feature creation for key " + gridKey + " (Point: " + (representativePoint != null) + ", Count: " + count + ")");
             }
         }
-
-        // 5. Create FeatureCollection and Update Manager
         FeatureCollection heatmapData = FeatureCollection.fromFeatures(heatmapFeatures);
-        Log.i(TAG_HEATMAP, "Finished variable weight aggregation. Final features: " + heatmapFeatures.size());
-
         if (heatmapToggleManager != null) {
             heatmapToggleManager.updateHeatmapData(heatmapData);
-            Log.i(TAG_HEATMAP, "Variable weight heatmap data sent to HeatmapToggleManager.");
-        } else {
-            Log.e(TAG_HEATMAP, "HeatmapToggleManager is null! Cannot update heatmap data.");
+            Log.i(TAG_HEATMAP, "Variable weight heatmap data sent to HeatmapToggleManager (" + heatmapFeatures.size() + " features).");
         }
-        // <<< --- END: VARIABLE WEIGHT HEATMAP DATA AGGREGATION --- >>>
+        // --- End Heatmap Data Aggregation ---
 
-
-        // --- Grouping and Processing Logic for Polylines (Existing logic remains unchanged) ---
-        // ... (The code block starting with List<List<SegmentData>> segmentGroups = ...) ...
-        // ... (should remain exactly as it was in the previous step) ...
+        // --- Grouping Segments into Journeys ---
         List<List<SegmentData>> segmentGroups = new ArrayList<>();
-        List<Boolean> groupNeedsMatching = new ArrayList<>();
+        List<Boolean> groupNeedsMatchingFlags = new ArrayList<>(); // To store the needsMatchBasedOnCriteria for each group
         int i = 0;
         while (i < sortedSegments.size()) {
             SegmentData currentSegment = sortedSegments.get(i);
             List<SegmentData> currentGroup = new ArrayList<>();
             currentGroup.add(currentSegment);
-            boolean currentGroupRequiresMatch = doesSegmentNeedMatching(currentSegment, forceRematch);
-            Log.d(TAG_MATCH_CHECK, "Starting group with segment " + i + " (" + currentSegment.getOriginalFileName() + "). Initial Needs Match? " + currentGroupRequiresMatch);
+            // Determine if this first segment *itself* needs matching
+            boolean currentSegmentRequiresMatch = doesSegmentNeedMatching(currentSegment, forceRematch);
+            boolean thisGroupOverallRequiresMatch = currentSegmentRequiresMatch; // Initialize group's need with the first segment
+
+            Log.d(TAG_MATCH_CHECK, "Starting group with segment " + i + " (" + currentSegment.getOriginalFileName() + "). Initial Segment Needs Match? " + currentSegmentRequiresMatch);
+
             int j = i + 1;
             while (j < sortedSegments.size()) {
                 SegmentData nextSegment = sortedSegments.get(j);
                 SegmentData lastSegmentInGroup = currentGroup.get(currentGroup.size() - 1);
+
                 PolylinePoint endPointPrevious = lastSegmentInGroup.getLastPoint();
                 PolylinePoint startPointNext = nextSegment.getFirstPoint();
                 boolean connect = false;
                 boolean nextSegmentRequiresMatch = doesSegmentNeedMatching(nextSegment, forceRematch);
-                Log.d(TAG_MATCH_CHECK, "  Checking connection to segment " + j + " (" + nextSegment.getOriginalFileName() + "). Needs Match? " + nextSegmentRequiresMatch);
+
+                Log.d(TAG_MATCH_CHECK, "  Checking connection to segment " + j + " (" + nextSegment.getOriginalFileName() + "). Next Segment Needs Match? " + nextSegmentRequiresMatch);
+
                 if (endPointPrevious != null && startPointNext != null) {
                     long timeGap = startPointNext.timestamp - endPointPrevious.timestamp;
                     float distanceGap = calculateDistance(endPointPrevious, startPointNext);
-                    Log.d(TAG_MATCH_CHECK, "    Gap Time: " + timeGap + "ms, Dist: " + String.format("%.1f", distanceGap) + "m"); // Log gap size
+                    Log.v(TAG_MATCH_CHECK, "    Gap Time: " + timeGap + "ms, Dist: " + String.format(Locale.US, "%.1f", distanceGap) + "m");
+
                     boolean gapOk = (timeGap >= 0 && timeGap <= MAX_TIME_GAP_MS && distanceGap <= MAX_DISTANCE_GAP_METERS);
-                    Log.d(TAG_MATCH_CHECK, "    Gap OK? " + gapOk);
+                    Log.v(TAG_MATCH_CHECK, "    Gap OK? " + gapOk);
+
                     if (gapOk) {
                         String previousMode = lastSegmentInGroup.getRepresentativeMode();
                         String nextMode = nextSegment.getRepresentativeMode();
-                        Log.d(TAG_MATCH_CHECK, "    Prev Mode: '" + previousMode + "', Next Mode: '" + nextMode + "'");
+                        Log.v(TAG_MATCH_CHECK, "    Prev Mode: '" + previousMode + "', Next Mode: '" + nextMode + "'");
+
                         if (!previousMode.equals("Unknown") && previousMode.equals(nextMode)) {
                             connect = true;
-                            Log.d(TAG_MATCH_CHECK, "  -> Connecting segment " + j + " to current group. Reason: Gap OK and Modes Match.");
+                            Log.d(TAG_MATCH_CHECK, "  -> Connecting segment " + j + ". Reason: Gap OK and Modes Match.");
                         } else if (previousMode.equals("Unknown") || !previousMode.equals(nextMode)){
                             Log.d(TAG_MATCH_CHECK, "  -> NOT Connecting segment " + j + ". Reason: Gap OK but Modes Differ or Previous is Unknown.");
                         }
@@ -3688,150 +3666,149 @@ private void navigateJourney(int direction) {
                         Log.d(TAG_MATCH_CHECK, "  -> NOT Connecting segment " + j + ". Reason: Gap too large.");
                     }
                 } else {
-                    Log.w(TAG_MATCH_CHECK, "    Cannot check gap, null point.");
+                    Log.w(TAG_MATCH_CHECK, "    Cannot check gap, endPointPrevious or startPointNext is null.");
                 }
+
                 if (connect) {
                     currentGroup.add(nextSegment);
-                    if (nextSegmentRequiresMatch) {
-                        currentGroupRequiresMatch = true;
-                        Log.d(TAG_MATCH_CHECK,"    Segment "+j+" requires match, setting group flag.");
+                    if (nextSegmentRequiresMatch) { // If any segment in the group needs matching, the group needs matching
+                        thisGroupOverallRequiresMatch = true;
+                        Log.d(TAG_MATCH_CHECK,"    Segment "+j+" requires match, setting group flag to true.");
                     }
                     j++;
                 } else {
                     Log.d(TAG_MATCH_CHECK, "    Decision: BREAK group extension.");
-                    break; // Stop extending this group
+                    break;
                 }
-            } // End inner loop (j)
-            boolean finalizedGroupNeedsMatch = forceRematch || currentGroup.size() > 1 || currentGroupRequiresMatch;
+            }
+            // Final decision for the group: forced, or more than one segment, or any segment needed it
+            boolean finalizedGroupNeedsMatch = forceRematch || currentGroup.size() > 1 || thisGroupOverallRequiresMatch;
             segmentGroups.add(currentGroup);
-            groupNeedsMatching.add(finalizedGroupNeedsMatch);
-            Log.i(TAG_LOAD, "Finalized Group: Segments " + i + " to " + (j - 1) + ". Final Needs Matching Status: " + finalizedGroupNeedsMatch + " (Size>1: "+(currentGroup.size() > 1)+", AnySegmentNeeded: "+currentGroupRequiresMatch+", Forced: "+forceRematch+")");
-            i = j; // Update outer loop index
-        } // End outer loop (i)
+            groupNeedsMatchingFlags.add(finalizedGroupNeedsMatch); // Store this group's matching need
 
+            Log.i(TAG_LOAD, "Finalized Group: Segments " + i + " to " + (j - 1) + ". Final Group Needs Matching Status: " + finalizedGroupNeedsMatch +
+                    " (Criteria: Force=" + forceRematch + ", Size>1=" + (currentGroup.size() > 1) + ", AnySegmentNeeded=" + thisGroupOverallRequiresMatch + ")");
+            i = j;
+        }
+        // --- End Grouping ---
 
         Log.d(TAG_LOAD, "onJourneysLoaded: Preparing to loop through " + segmentGroups.size() + " processed groups...");
-        final long DELAY_BETWEEN_REQUESTS_MS = 100; // Stagger API calls if needed
-        int displayIndex = 0; // Index for adding to displayedJourneyDetailsList and map layers
+        final long DELAY_BETWEEN_REQUESTS_MS = 100;
+        int displayIndex = 0;
 
-        // --- Loop through each group of connected segments ---
         for (int groupIdx = 0; groupIdx < segmentGroups.size(); groupIdx++) {
             Log.d(TAG_LOAD, "onJourneysLoaded: Processing group/journey index: " + groupIdx + " (DisplayIndex: " + displayIndex + ")");
 
             List<SegmentData> group = segmentGroups.get(groupIdx);
-            // Get the pre-calculated flag indicating if this group needs matching based on accuracy/segments/gaps
-            boolean needsMatchBasedOnCriteria = groupNeedsMatching.get(groupIdx);
+            boolean needsMatchBasedOnCriteria = groupNeedsMatchingFlags.get(groupIdx); // Get the stored flag
 
-            // Combine points and filenames for the entire group
             List<PolylinePoint> combinedPoints = new ArrayList<>();
             List<String> combinedFilenames = new ArrayList<>();
             for (SegmentData segment : group) {
                 if (segment.getPoints() != null) combinedPoints.addAll(segment.getPoints());
                 combinedFilenames.add(segment.getOriginalFileName());
             }
-            // Skip this group if it somehow ended up with no points
+
             if (combinedPoints.isEmpty()) {
-                Log.w(TAG_LOAD, "Skipping group " + groupIdx + " because combinedPoints is empty.");
+                Log.w(TAG_LOAD, "Skipping group " + groupIdx + " because combinedPoints is empty after collecting from segments.");
                 continue;
             }
 
-            // Calculate details for the group (This loads mapMatched and matchedShape from Step 1)
             JourneyDetails journeyDetails = calculateJourneyDetails(combinedPoints, combinedFilenames);
             if (journeyDetails == null) {
-                Log.w(TAG_LOAD, "Skipping group " + groupIdx + " because calculateJourneyDetails returned null.");
-                continue; // Skip if details couldn't be calculated
+                Log.w(TAG_LOAD, "Skipping group " + groupIdx + " because calculateJourneyDetails returned null for combined points.");
+                continue;
             }
-            // Add the details for this group to the activity's list
             displayedJourneyDetailsList.add(journeyDetails);
 
-            // Create final variables needed for lambdas (postDelayed calls)
-            final int currentDisplayIndex = displayIndex++; // Use the current index and increment for the next one
+            final int currentDisplayIndex = displayIndex++;
             final JourneyDetails finalJourneyDetails = journeyDetails;
-            final List<PolylinePoint> finalCombinedPoints = combinedPoints; // Use the combined points
+            final List<PolylinePoint> finalCombinedPoints = combinedPoints;
 
-            // ****** START STEP 2 LOGIC ******
-            // Check if we should USE the stored matched shape FIRST
-            if (finalJourneyDetails.mapMatched && !forceRematch) {
-                Log.i(TAG_LOAD, "Group " + groupIdx + " (DisplayIndex " + currentDisplayIndex + "): Already matched & not forced. Attempting to use stored shape.");
-                String storedShape = finalJourneyDetails.getMatchedShape(); // Use getter or direct access if public
+            // ****** START OF MODIFIED LOGIC (MOVED INSIDE THE LOOP) ******
+            boolean skipMatchingDueToNewRules = false;
+            String dominantMode = finalJourneyDetails.getDominantMode();
+            float averageAccuracy = finalJourneyDetails.getAverageAccuracy();
 
-                if (storedShape != null && !storedShape.isEmpty()) {
-                    // Attempt to decode the stored shape
-                    List<LatLng> decodedLatLngs = decodeValhallaPolyline(storedShape);
-
-                    if (decodedLatLngs != null && !decodedLatLngs.isEmpty()) {
-                        // SUCCESS: Decoded shape is valid, display it
-                        Log.d(TAG_LOAD, "   Successfully decoded stored shape ("+ decodedLatLngs.size() +" points). Displaying matched polyline.");
-                        // Use post to ensure map updates happen on the main thread
-                        mainThreadHandler.post(() -> {
-                            updatePolylineOnMap(currentDisplayIndex, decodedLatLngs, finalJourneyDetails);
-                        });
-                        continue; // <<<--- IMPORTANT: Skip the rest of this loop iteration!
-                    } else {
-                        // DECODE FAILED: Log warning and fall through
-                        Log.w(TAG_LOAD, "   Failed to decode stored shape for group " + groupIdx + ". Will fall back to checking 'needsMatch'.");
-                        // Set needsMatch to true here to force re-matching if decode failed? Optional.
-                        needsMatchBasedOnCriteria = true;
-                        Log.w(TAG_LOAD, "   Setting needsMatchBasedOnCriteria to true due to decode failure.");
-                    }
-                } else {
-                    // SHAPE MISSING: Log warning and fall through
-                    Log.w(TAG_LOAD, "   Stored shape is missing for group " + groupIdx + ". Will fall back to checking 'needsMatch'.");
-                    // Set needsMatch to true here to force re-matching if shape was missing? Optional.
-                    needsMatchBasedOnCriteria = true;
-                    Log.w(TAG_LOAD, "   Setting needsMatchBasedOnCriteria to true due to missing shape.");
-                }
-                // If we reach here, stored shape was invalid. Execution continues to the 'needsMatch' check below.
+            if ("Walking".equals(dominantMode)) {
+                skipMatchingDueToNewRules = true;
+                Log.i(TAG_MATCH_CHECK, "Group " + groupIdx + " (DisplayIndex " + currentDisplayIndex + "): SKIPPING Map Matching - Dominant mode is 'Walking'.");
+            } else if ("In Vehicle".equals(dominantMode) && averageAccuracy > 0 && averageAccuracy < 5.0f) {
+                skipMatchingDueToNewRules = true;
+                Log.i(TAG_MATCH_CHECK, "Group " + groupIdx + " (DisplayIndex " + currentDisplayIndex + "): SKIPPING Map Matching - 'In Vehicle' mode with high accuracy (" + String.format(Locale.US, "%.1f", averageAccuracy) + "m).");
             }
 
+            if (!skipMatchingDueToNewRules && finalJourneyDetails.mapMatched && !forceRematch) {
+                Log.i(TAG_LOAD, "Group " + groupIdx + " (DisplayIndex " + currentDisplayIndex + "): Already matched & not forced & not skipped by new rules. Attempting to use stored shape.");
+                String storedShape = finalJourneyDetails.getMatchedShape();
+                if (storedShape != null && !storedShape.isEmpty()) {
+                    List<LatLng> decodedLatLngs = decodeValhallaPolyline(storedShape);
+                    if (decodedLatLngs != null && !decodedLatLngs.isEmpty()) {
+                        Log.d(TAG_LOAD, "   Successfully decoded stored shape ("+ decodedLatLngs.size() +" points). Displaying matched polyline.");
+                        mainThreadHandler.post(() -> updatePolylineOnMap(currentDisplayIndex, decodedLatLngs, finalJourneyDetails));
+                        continue; // Correctly placed continue: Skip the rest of this loop iteration for this journey
+                    } else {
+                        Log.w(TAG_LOAD, "   Failed to decode stored shape for group " + groupIdx + ". Will fall back to re-evaluating matching criteria.");
+                        needsMatchBasedOnCriteria = true; // Force re-evaluation if decoding failed
+                        finalJourneyDetails.mapMatched = false;
+                        finalJourneyDetails.setMatchedShape(null);
+                    }
+                } else {
+                    Log.w(TAG_LOAD, "   Stored shape is missing for group " + groupIdx + ". Will fall back to re-evaluating matching criteria.");
+                    needsMatchBasedOnCriteria = true; // Force re-evaluation if shape was missing
+                    finalJourneyDetails.mapMatched = false;
+                }
+            }
 
-            // --- Decision: Match API Call OR Display Raw ---
-            // This block is reached if:
-            // - mapMatched was false, OR
-            // - forceRematch was true, OR
-            // - mapMatched was true BUT storedShape was invalid/missing (and needsMatchBasedOnCriteria was potentially set true above)
-            // We still rely on the original needsMatchBasedOnCriteria flag calculated during grouping, unless overridden above.
-            if (needsMatchBasedOnCriteria) {
-                Log.i(TAG_LOAD, ">>> Group " + groupIdx + " (DisplayIndex " + currentDisplayIndex + "): Needs Match. Triggering API call...");
-                // Decide between gap or full matching based on combined points
+            if (skipMatchingDueToNewRules) {
+                Log.i(TAG_LOAD, ">>> Group " + groupIdx + " (DisplayIndex " + currentDisplayIndex + "): SKIPPING MATCH based on new rules. Displaying raw.");
+                mainThreadHandler.postDelayed(() -> {
+                    displayRawJourneyFallback(finalCombinedPoints, currentDisplayIndex, finalJourneyDetails);
+                    if (finalJourneyDetails.mapMatched || finalJourneyDetails.getMatchedShape() != null) {
+                        finalJourneyDetails.mapMatched = false;
+                        finalJourneyDetails.setMatchedShape(null);
+                        saveJourneyMetadataInBackground(finalJourneyDetails);
+                        Log.d(TAG_MATCH_CHECK, "   Cleared mapMatched status for journey " + finalJourneyDetails.startTimeMs + " due to new skip rules (displaying raw).");
+                    }
+                }, groupIdx * DELAY_BETWEEN_REQUESTS_MS);
+            } else if (needsMatchBasedOnCriteria) {
+                Log.i(TAG_LOAD, ">>> Group " + groupIdx + " (DisplayIndex " + currentDisplayIndex + "): Needs Match by (re-evaluated) criteria. Triggering API call...");
                 List<Integer> gapIndices = findLargeGapIndices(finalCombinedPoints);
                 if (!gapIndices.isEmpty()) {
                     Log.d(TAG_LOAD, "   Triggering Gap Matching for group " + groupIdx);
-                    mainThreadHandler.postDelayed(() -> {
-                        processJourneyWithGapMatching(finalCombinedPoints, gapIndices, currentDisplayIndex, finalJourneyDetails);
-                    }, groupIdx * DELAY_BETWEEN_REQUESTS_MS);
+                    mainThreadHandler.postDelayed(() -> processJourneyWithGapMatching(finalCombinedPoints, gapIndices, currentDisplayIndex, finalJourneyDetails), groupIdx * DELAY_BETWEEN_REQUESTS_MS);
                 } else {
                     Log.d(TAG_LOAD, "   Triggering Full Matching for group " + groupIdx);
-                    mainThreadHandler.postDelayed(() -> {
-                        callValhallaApi(finalCombinedPoints, currentDisplayIndex, finalJourneyDetails);
-                    }, groupIdx * DELAY_BETWEEN_REQUESTS_MS);
+                    mainThreadHandler.postDelayed(() -> callValhallaApi(finalCombinedPoints, currentDisplayIndex, finalJourneyDetails), groupIdx * DELAY_BETWEEN_REQUESTS_MS);
                 }
             } else {
-                // This 'else' means no matching is needed based on the original criteria,
-                // AND it wasn't previously matched (or stored shape failed, but criteria still say no match needed - unlikely but possible)
-                Log.i(TAG_LOAD, ">>> Group " + groupIdx + " (DisplayIndex " + currentDisplayIndex + "): No match needed by criteria. Displaying raw.");
+                Log.i(TAG_LOAD, ">>> Group " + groupIdx + " (DisplayIndex " + currentDisplayIndex + "): No match needed by any criteria. Displaying raw.");
                 mainThreadHandler.postDelayed(() -> {
                     displayRawJourneyFallback(finalCombinedPoints, currentDisplayIndex, finalJourneyDetails);
+                    if (finalJourneyDetails.mapMatched || finalJourneyDetails.getMatchedShape() != null) {
+                        finalJourneyDetails.mapMatched = false;
+                        finalJourneyDetails.setMatchedShape(null);
+                        saveJourneyMetadataInBackground(finalJourneyDetails);
+                        Log.d(TAG_MATCH_CHECK, "   Cleared mapMatched status for journey " + finalJourneyDetails.startTimeMs + " as no match was required (displaying raw).");
+                    }
                 }, groupIdx * DELAY_BETWEEN_REQUESTS_MS);
             }
+            // ****** END OF MODIFIED LOGIC (MOVED INSIDE THE LOOP) ******
         } // End processing groups loop
 
+        isJourneyDataLoaded = true;
+        mainActivityJourneysEverLoaded = true;
+        mainActivityForceRefreshJourneys = false;
+        Log.i(TAG_LOAD_CB, "MainActivity.onJourneysLoaded: Processing complete. Flags updated.");
 
-        // Inside onJourneysLoaded, near the end after loops
-        isJourneyDataLoaded = true; // Mark loading complete
-        // Set initial visibility based on current tracking state
-
-        Log.i(TAG_LOAD, "onJourneysLoaded (Variable Weighting): Finished processing all groups. Final displayed polyline list size: " + displayedJourneyDetailsList.size());
-        updateHistoricalJourneyVisibility(null); // Apply initial filter state (not tracking yet)
+        Log.i(TAG_LOAD, "onJourneysLoaded: Finished processing all groups. Final displayed polyline list size: " + displayedJourneyDetailsList.size());
         mapView.invalidate(); // Final invalidation
-        isJourneyDataLoaded = true; // Mark loading complete
 
-        // --- ADD A DELAYED CALL INSTEAD ---
         mainThreadHandler.postDelayed(() -> {
             Log.i(TAG_LOAD, "onJourneysLoaded: Applying initial historical visibility (Delayed)");
             String currentModeNow = isTrackingActive ? (overrideMode != null ? overrideMode : "Unknown") : null;
-            updateHistoricalPolylinesVisibility(currentModeNow);
-        }, 500); // Delay for 500 milliseconds (adjust if needed)
+            updateHistoricalJourneyVisibility(currentModeNow); // Apply filters and tracking state visibility
+        }, 500);
     }
 
 
