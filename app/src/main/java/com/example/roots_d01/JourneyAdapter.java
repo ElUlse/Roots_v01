@@ -46,6 +46,7 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
 
     public interface OnJourneyActionListener {
         void onRenameRequested(JourneyDetails journey);
+
         void onHeaderClicked(String headerDateText); // Parameter is the date string from DayHeaderItem
     }
 
@@ -58,6 +59,7 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
         this.mainThreadHandler = handler;   // Store passed handler
         Log.d(TAG, "Adapter created with " + this.listItems.size() + " initial items.");
     }
+
     // Overloaded constructor for compatibility if executor/handler not passed immediately
     public JourneyAdapter(Context context, List<Object> items, OnJourneyActionListener listener) {
         this(context, items, listener, Executors.newSingleThreadExecutor(), new Handler(Looper.getMainLooper()));
@@ -197,9 +199,9 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
             llTransportModeIcons = itemView.findViewById(R.id.llTransportModeIcons); // *** Find the LinearLayout ***
 
             if (tvDateHeader == null || ivExpansionIndicator == null || llTransportModeIcons == null) {
-                Log.e(TAG, "DayHeaderViewHolder: One or more views not found! tvDateHeader=" + (tvDateHeader==null) +
-                        ", ivExpansionIndicator=" + (ivExpansionIndicator==null) +
-                        ", llTransportModeIcons=" + (llTransportModeIcons==null) );
+                Log.e(TAG, "DayHeaderViewHolder: One or more views not found! tvDateHeader=" + (tvDateHeader == null) +
+                        ", ivExpansionIndicator=" + (ivExpansionIndicator == null) +
+                        ", llTransportModeIcons=" + (llTransportModeIcons == null));
             }
         }
 
@@ -338,34 +340,59 @@ public class JourneyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
             accuracyTextView.setText(journeyDetails.getFormattedAverageAccuracy());
 
             if (mapPreviewImageView != null) {
-                mapPreviewImageView.setImageResource(0);
-                mapPreviewImageView.setBackgroundColor(Color.LTGRAY);
-            }
-            if (journeyDetails.points != null && journeyDetails.points.size() > 1 && mapPreviewImageView != null) {
-                final List<PolylinePoint> points = journeyDetails.points;
-                final int previewColor = JourneyListActivity.getColorForTransportMode(ctx, journeyDetails.getDominantMode());
-                final int imageSizePx = dpToPx(80);
+                // Reset image and background
+                mapPreviewImageView.setImageResource(0); // Clear previous image
+                mapPreviewImageView.setBackgroundColor(Color.LTGRAY); // Placeholder background
 
-                bgExecutor.execute(() -> {
-                    final Bitmap previewBitmap = MapPreviewGenerator.generatePreviewBitmap(
-                            points, imageSizePx, imageSizePx, previewColor);
-                    uiHandler.post(() -> {
-                        if (getBindingAdapterPosition() == position && mapPreviewImageView != null) {
-                            if (previewBitmap != null) {
-                                mapPreviewImageView.setBackgroundColor(Color.TRANSPARENT);
-                                mapPreviewImageView.setImageBitmap(previewBitmap);
-                            } else {
-                                mapPreviewImageView.setBackgroundColor(Color.LTGRAY);
+                if (journeyDetails.points != null && journeyDetails.points.size() > 1) {
+                    final List<PolylinePoint> points = journeyDetails.points;
+                    final int previewColor = JourneyListActivity.getColorForTransportMode(ctx, journeyDetails.getDominantMode());
+
+                    // Get the fixed height from your layout (e.g., 180dp) and convert to pixels
+                    final int fixedImageHeightPx = dpToPx(180); // Make sure 180 matches your XML
+
+                    // Post a runnable to get the measured width of the ImageView
+                    mapPreviewImageView.post(() -> {
+                        final int imageWidthPx = mapPreviewImageView.getWidth();
+
+                        if (imageWidthPx > 0) { // Ensure width is measured
+                            bgExecutor.execute(() -> {
+                                final Bitmap previewBitmap = MapPreviewGenerator.generatePreviewBitmap(
+                                        points, imageWidthPx, fixedImageHeightPx, previewColor); // Use measured width and fixed height
+                                uiHandler.post(() -> {
+                                    // Check position to ensure this update is for the correct item
+                                    if (getBindingAdapterPosition() == position && mapPreviewImageView != null) {
+                                        if (previewBitmap != null) {
+                                            mapPreviewImageView.setBackgroundColor(Color.TRANSPARENT); // Clear placeholder background
+                                            mapPreviewImageView.setImageBitmap(previewBitmap);
+                                        } else {
+                                            mapPreviewImageView.setBackgroundColor(Color.DKGRAY); // Error color
+                                        }
+                                    }
+                                });
+                            });
+                        } else {
+                            Log.w(TAG, "ImageView width is 0, cannot generate preview for position: " + position);
+                            // Optionally set an error placeholder
+                            if (getBindingAdapterPosition() == position && mapPreviewImageView != null) {
+                                mapPreviewImageView.setBackgroundColor(Color.DKGRAY);
                             }
                         }
                     });
-                });
-            } else if (mapPreviewImageView != null) {
-                mapPreviewImageView.setBackgroundColor(Color.LTGRAY);
+                } else {
+                    // No points or not enough points, set placeholder background
+                    mapPreviewImageView.setBackgroundColor(Color.LTGRAY);
+                }
             }
         }
-        private int dpToPx(int dp) {
-            return Math.round((float) dp * context.getResources().getDisplayMetrics().density);
-        }
+    }
+
+    private int dpToPx(int dp) {
+        // 'context' should be available if you're passing it to bindJourney
+        // or if JourneyViewHolder has access to the adapter's context field.
+        // If 'context' is not directly available here, you might need to
+        // pass it to this method or ensure the ViewHolder has a Context member.
+        // Assuming 'context' is accessible (e.g., from the adapter):
+        return Math.round((float) dp * context.getResources().getDisplayMetrics().density);
     }
 }
