@@ -247,8 +247,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private MaterialButton viewJourneysButton; // Changed from Button?
     private MaterialButton btnToggleHeatmap; // Changed from Button?
     private Chip chipWalk, chipBike, chipVehicle; // Add chipAll if used
-    private boolean mainActivityJourneysEverLoaded = false;
-    private boolean mainActivityForceRefreshJourneys = true; // Initialize to true for the very first load
 
 
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -438,13 +436,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         // --- Get LocationManager (for status checks) ---
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
-        if (getIntent() != null && getIntent().getBooleanExtra("FORCE_REFRESH_MAIN_MAP", false)) {
-            Log.i(TAG, "onCreate: Intent requests FORCE_REFRESH_MAIN_MAP.");
-            mainActivityForceRefreshJourneys = true;
-            getIntent().removeExtra("FORCE_REFRESH_MAIN_MAP"); // Consume the extra
-        } else if (savedInstanceState == null) { // Only if it's a fresh create (not a config change restore)
-            mainActivityForceRefreshJourneys = true; // Ensure data loads on a fresh start
-        }
 
         try {
             // *** Instantiate JourneyManager ***
@@ -951,10 +942,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             Log.e(TAG,"setupMapDependentFeatures: HeatmapToggleManager is null during setup!");
         }
 
-        Log.d(TAG, "setupMapDependentFeatures: Checking permission before loading journeys...");
-        triggerJourneyLoadIfPermitted(); // Centralized call
-        Log.i(TAG, ">>> setupMapDependentFeatures: END");
-
         // Trigger journey loading only if permission is granted
         Log.d(TAG, "setupMapDependentFeatures: Checking permission before loading journeys...");
         // Use the member 'permissionHelper' if available, otherwise check directly
@@ -1053,13 +1040,13 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
         // Ensure Layer exists and set initial style
         LineLayer currentLayer = style.getLayerAs(CURRENT_TRACK_LAYER_ID);
-        int recordingColor = Color.BLACK;
+        int initialColor = getColorForTransport(initialTransportMode); // Use helper
         float initialWidth = (float) polylineThickness; // Use loaded setting
 
         if (currentLayer == null) {
             currentLayer = new LineLayer(CURRENT_TRACK_LAYER_ID, CURRENT_TRACK_SOURCE_ID);
             currentLayer.setProperties(
-                    PropertyFactory.lineColor(recordingColor),
+                    PropertyFactory.lineColor(initialColor),
                     PropertyFactory.lineWidth(initialWidth),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
@@ -1077,7 +1064,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         } else {
             // Update existing layer's style
             currentLayer.setProperties(
-                    PropertyFactory.lineColor(recordingColor),
+                    PropertyFactory.lineColor(initialColor),
                     PropertyFactory.lineWidth(initialWidth),
                     PropertyFactory.visibility(Property.VISIBLE)
             );
@@ -1202,24 +1189,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             if (mapView != null) {
                 mapView.onResume();
             }
-        }
-
-        // If the map is ready and permissions granted, check if we need to load data.
-        if (maplibreMap != null && maplibreMap.getStyle() != null && maplibreMap.getStyle().isFullyLoaded() &&
-                ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            if (!mainActivityJourneysEverLoaded || mainActivityForceRefreshJourneys) {
-                Log.i(TAG, "onResume: Conditions met to trigger journey load.");
-                triggerJourneyLoadIfPermitted();
-            } else {
-                Log.i(TAG, "onResume: Journeys already loaded and no force refresh needed for main map.");
-                // If journeys are loaded but style might have changed (e.g. settings),
-                // you might need to ensure they are visible. The existing
-                // onJourneysLoaded has logic to add/update layers. If called with cached data,
-                // it would effectively re-apply them to the current style.
-                // For now, if not forcing a reload of data from files, assume map layers are managed by style reloads.
-            }
-        } else {
-            Log.d(TAG, "onResume: Map not ready or permissions not granted yet for journey load check.");
         }
 
         // --- Register Receiver ---
@@ -1389,14 +1358,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         updateMapToLastKnownLocation();
         requestActivityUpdatesPermission(); // Handles AR permission
 
-
-        if (maplibreMap != null && maplibreMap.getStyle() != null && maplibreMap.getStyle().isFullyLoaded()) {
-            Log.i(TAG_LOAD, "Location permission granted & map style ready. Triggering journey load.");
-            triggerJourneyLoadIfPermitted();
-        } else {
-            Log.i(TAG_LOAD, "Location permission granted, but map style not ready. Journey load will be triggered by onStyleLoaded.");
-        }
-
         // *** CORRECTED CALL: Pass 'this' (MainActivity instance) as the Activity argument ***
         if (permissionHelper != null) {
             Log.d(TAG, "Foreground location granted, now checking for background location permission...");
@@ -1417,40 +1378,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             Log.i(TAG_LOAD, "Location permission granted, but journey data already loaded. Skipping reload.");
         }
     }
-
-    private void triggerJourneyLoadIfPermitted() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            Log.w(TAG_LOAD, "triggerJourneyLoadIfPermitted: Fine location permission NOT granted. Cannot load journeys.");
-            // Optionally, request permission again or notify user.
-            // if (permissionHelper != null) permissionHelper.checkAndRequestBasePermissions();
-            return;
-        }
-
-        if (!mainActivityJourneysEverLoaded || mainActivityForceRefreshJourneys) {
-            Log.i(TAG_LOAD, "MainActivity: Triggering journeyManager.loadAllPolylineData(). " +
-                    "mainActivityJourneysEverLoaded=" + mainActivityJourneysEverLoaded +
-                    ", mainActivityForceRefreshJourneys=" + mainActivityForceRefreshJourneys);
-            if (journeyManager != null) {
-                // Before loading, clear existing historical overlays from the map
-                // to prevent duplicates if data is being refreshed.
-                if (mainActivityForceRefreshJourneys) { // Only clear if it's a full refresh
-                    clearAllHistoricalOverlays();
-                }
-                journeyManager.loadAllPolylineData(); // This will call onJourneysLoaded when done
-            } else {
-                Log.e(TAG_LOAD, "triggerJourneyLoadIfPermitted: journeyManager is null!");
-            }
-        } else {
-            Log.i(TAG_LOAD, "MainActivity: Skipping full journey data load via triggerJourneyLoadIfPermitted. Data assumed current.");
-            // If data is current, but the style might have reloaded (e.g. after returning from settings),
-            // you might want to re-display the polylines from your in-memory list without reprocessing files.
-            // This typically means calling the core display logic part of onJourneysLoaded again
-            // with the `displayedJourneyDetailsList`.
-            // For simplicity, we assume that if style reloads, onStyleLoaded handles re-adding everything necessary.
-            // The key is to avoid JourneyManager.loadAllPolylineData() which reads from disk.
-        }
-    }
-
 
     @Override
     public void onLocationPermissionDenied() {
@@ -1853,19 +1780,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             }
             final String action = intent.getAction();
             Log.d("BroadcastDebug", "MainActivity Receiver: Received Action = " + action);
-
-            if (LocationTrackingService.ACTION_NEW_JOURNEY_SAVED.equals(intent.getAction())) {
-                Log.i(TAG, "MainActivity Receiver: Received ACTION_NEW_JOURNEY_SAVED.");
-                mainActivityForceRefreshJourneys = true; // Mark that a refresh is needed
-                Log.d(TAG, "Set mainActivityForceRefreshJourneys=true due to new journey saved.");
-                // If the activity is currently resumed, and map is ready, trigger the reload.
-                // Otherwise, onResume will pick it up.
-                if (maplibreMap != null && maplibreMap.getStyle() != null && maplibreMap.getStyle().isFullyLoaded() &&
-                        ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                    Log.d(TAG, "New journey saved, triggering immediate reload check.");
-                    triggerJourneyLoadIfPermitted();
-                }
-            }
 
             // --- Handle Location Broadcast ---
             if (LocationTrackingService.ACTION_LOCATION_BROADCAST.equals(action)) {
@@ -3452,17 +3366,9 @@ private void navigateJourney(int direction) {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        setIntent(intent); // Update the activity's intent
-        if (intent != null && intent.getBooleanExtra("FORCE_REFRESH_MAIN_MAP", false)) {
-            Log.i(TAG, "onNewIntent: Intent requests FORCE_REFRESH_MAIN_MAP.");
-            mainActivityForceRefreshJourneys = true;
-            intent.removeExtra("FORCE_REFRESH_MAIN_MAP");
-            // Trigger a reload if the activity is already resumed and map is ready
-            if (mainActivityJourneysEverLoaded && maplibreMap != null && maplibreMap.getStyle() != null && maplibreMap.getStyle().isFullyLoaded()) {
-                Log.d(TAG, "onNewIntent: Map ready, triggering journey load due to force refresh.");
-                triggerJourneyLoadIfPermitted();
-            }
-        }
+        // Handle intent if MainActivity is brought to front again
+        setIntent(intent); // Update the activity's intent reference
+        handleIntent(intent);
     }
 
     // Helper method to process the intent
@@ -3625,7 +3531,6 @@ private void navigateJourney(int direction) {
         final String TAG_LOAD = "JourneyDisplay";
         final String TAG_MATCH_CHECK = "JourneyDisplay";
         final String TAG_HEATMAP = "HeatmapData"; // Specific tag for heatmap logic
-        final String TAG_LOAD_CB = "JourneyDisplayCallback"; // Specific tag for this callback
 
         Log.i(TAG_LOAD, ">>> MainActivity.onJourneysLoaded: CALLBACK RECEIVED! Segments: " + (sortedSegments != null ? sortedSegments.size() : "null") + ", forceRematch=" + forceRematch); // <-- ADD THIS LINE
 
@@ -3916,16 +3821,6 @@ private void navigateJourney(int direction) {
         isJourneyDataLoaded = true; // Mark loading complete
         // Set initial visibility based on current tracking state
 
-        // IMPORTANT: After all journeys are processed and displayed on the map in the loop above:
-        if (!isFinishing() && !isDestroyed()) { // Ensure activity is still valid
-            mainActivityJourneysEverLoaded = true;
-            mainActivityForceRefreshJourneys = false; // Reset the flag after a successful load
-            Log.i(TAG_LOAD_CB, "MainActivity.onJourneysLoaded: Processing complete. Flags updated: " +
-                    "mainActivityJourneysEverLoaded=true, mainActivityForceRefreshJourneys=false.");
-        } else {
-            Log.w(TAG_LOAD_CB, "MainActivity.onJourneysLoaded: Activity is finishing/destroyed, skipping flag update.");
-        }
-
         Log.i(TAG_LOAD, "onJourneysLoaded (Variable Weighting): Finished processing all groups. Final displayed polyline list size: " + displayedJourneyDetailsList.size());
         updateHistoricalJourneyVisibility(null); // Apply initial filter state (not tracking yet)
         mapView.invalidate(); // Final invalidation
@@ -3943,57 +3838,61 @@ private void navigateJourney(int direction) {
 
 
     private void clearAllHistoricalOverlays() {
-        final String TAG_CLEAR = "ClearOverlays";
-        if (maplibreMap == null) {
-            Log.w(TAG_CLEAR, "MapLibreMap is null, cannot clear overlays.");
-            return;
-        }
+        final String TAG_LOAD = "JourneyDisplay";
+        if (maplibreMap == null) return;
 
-        maplibreMap.getStyle(style -> {
-            Log.d(TAG_CLEAR, "Clearing all historical journey layers and sources (within style callback)...");
+        maplibreMap.getStyle(style -> { // <<< Use getStyle lambda
+            Log.d(TAG_LOAD, "Clearing all historical journey layers and sources (within callback)...");
+
             List<String> layersToRemove = new ArrayList<>();
             List<String> sourcesToRemove = new ArrayList<>();
 
+            // Collect IDs within the callback to avoid issues modifying while iterating
             for (Layer layer : style.getLayers()) {
-                if (layer.getId().startsWith(HISTORICAL_LAYER_PREFIX)) {
+                if (layer.getId().startsWith(HISTORICAL_LAYER_PREFIX)) { // Use constant prefix
                     layersToRemove.add(layer.getId());
                 }
             }
-            // MapLibre source IDs were historical-journey-source- + journeyIndex
             for (org.maplibre.android.style.sources.Source source : style.getSources()) {
                 if (source.getId().startsWith("historical-journey-source-")) {
                     sourcesToRemove.add(source.getId());
                 }
             }
 
+            // Remove layers first
             for (String layerId : layersToRemove) {
-                style.removeLayer(layerId); // removeLayer is robust to non-existent layers
-                Log.d(TAG_CLEAR, "Attempted removal of layer: " + layerId);
+                if (style.getLayer(layerId) != null) {
+                    if (style.removeLayer(layerId)) {
+                        Log.d(TAG_LOAD, "Removed layer: " + layerId);
+                    } else { Log.w(TAG_LOAD, "Failed to remove layer: " + layerId); }
+                }
             }
+            // Then remove sources
             for (String sourceId : sourcesToRemove) {
-                style.removeSource(sourceId); // removeSource is robust
-                Log.d(TAG_CLEAR, "Attempted removal of source: " + sourceId);
+                if (style.getSource(sourceId) != null) {
+                    if (style.removeSource(sourceId)) {
+                        Log.d(TAG_LOAD, "Removed source: " + sourceId);
+                    } else { Log.w(TAG_LOAD, "Failed to remove source: " + sourceId); }
+                }
             }
+            Log.d(TAG_LOAD, "Finished clearing historical overlays (within callback).");
+        }); // <<< END getStyle lambda
 
-            // Also clear the local list that tracks displayed journeys if this method means a full reset
-            // However, this method is usually called *before* loading new data into displayedJourneyDetailsList.
-            // If displayedJourneyDetailsList is used to determine which layers/sources to remove,
-            // clear it *after* removal or pass the list to this method.
-            // For now, clearing by prefix is safer.
-
-            Log.d(TAG_CLEAR, "Finished attempting to clear historical overlays.");
-        });
-        // Hide the details panel if it was showing details for a cleared journey
+        // Clear lists and panel outside the callback (these are UI/data state, not map style)
+        displayedJourneyDetailsList.clear();
+        highlightedJourneyIndex = -1;
+        currentlyDisplayedDetailIndex = -1;
         hideJourneyDetailsPanel();
     }
 
     @Override
     public void onJourneyLoadError(String errorMessage) {
-        final String TAG_LOAD_CB = "JourneyDisplayCallback";
-        Log.e(TAG_LOAD_CB, "MainActivity.onJourneyLoadError: " + errorMessage);
+        final String TAG_LOAD = "JourneyDisplay";
+        Log.e(TAG_LOAD, "MainActivity.onJourneyLoadError: Received error callback: " + errorMessage); // <-- Log error callback
         Toast.makeText(this, "Error loading journey data: " + errorMessage, Toast.LENGTH_LONG).show();
-        // Don't set mainActivityJourneysEverLoaded to true on error.
-        // mainActivityForceRefreshJourneys remains true or its current state so it tries again.
+        isJourneyDataLoaded = true;
+        // Optionally clear the map or handle the error state further
+        // processAndDisplayJourneys(new ArrayList<>()); // Example: Show an empty map
     }
 
 
@@ -5153,16 +5052,16 @@ private void navigateJourney(int direction) {
 
         LineLayer layer = style.getLayerAs(CURRENT_TRACK_LAYER_ID);
         if (layer != null) {
-            int recordingColor = Color.BLACK;
+            int color = getColorForTransport(currentMode); // Use your existing helper
             float width = (float) polylineThickness; // Use loaded setting
 
             // Apply new properties
             layer.setProperties(
-                    PropertyFactory.lineColor(recordingColor),
+                    PropertyFactory.lineColor(color),
                     PropertyFactory.lineWidth(width)
                     // Add other properties like opacity if needed
             );
-            Log.v(TAG, "Updated current track layer style. Mode (ignored for color): " + currentMode + ", Color: BLACK");
+            Log.v(TAG, "Updated current track layer style. Mode: " + currentMode + ", Color: " + String.format("#%06X", (0xFFFFFF & color)));
         } else {
             Log.w(TAG, "updateCurrentPolylineStyle: Layer '" + CURRENT_TRACK_LAYER_ID + "' not found.");
         }
@@ -5180,10 +5079,12 @@ private void navigateJourney(int direction) {
 
         LineLayer layer = style.getLayerAs(CURRENT_TRACK_LAYER_ID);
         if (layer != null) {
-            int recordingColor = Color.BLACK;
+            int newColor = getColorForTransport(transportMode);
+            // Optional: Check if color actually changed before setting
+            // Object currentColorObj = layer.getLineColor().getValue(); // Getting color can be complex
+            // if (currentColorObj instanceof Integer && ((Integer)currentColorObj) == newColor) return;
 
-
-            layer.setProperties(PropertyFactory.lineColor(recordingColor));
+            layer.setProperties(PropertyFactory.lineColor(newColor));
             Log.v(TAG, "Updated current track layer color for mode: " + transportMode); // Verbose log
         } else {
             Log.w(TAG, "Cannot update current polyline layer color: Layer '" + CURRENT_TRACK_LAYER_ID + "' not found.");
