@@ -537,6 +537,8 @@ public class JourneyListActivity extends AppCompatActivity implements JourneyAda
         });
     }
 
+    // In JourneyListActivity.java
+
     private void generateAndSaveMapPreviewSynchronously(JourneyDetails journey) {
         if (journey == null || journey.points == null || journey.points.isEmpty()) {
             Log.w(TAG, "Skipping preview generation for null or empty journey (ID: " + (journey != null ? journey.startTimeMs : "null") + ")");
@@ -565,42 +567,89 @@ public class JourneyListActivity extends AppCompatActivity implements JourneyAda
 
         List<PolylinePoint> points = journey.points;
 
-        LatLngBounds.Builder boundsBuilder = new LatLngBounds.Builder();
-        boolean hasValidPoint = false;
+        // --- MODIFIED BOUNDS CALCULATION START ---
+        double minLat = Double.MAX_VALUE, maxLat = -Double.MAX_VALUE;
+        double minLon = Double.MAX_VALUE, maxLon = -Double.MAX_VALUE;
+        boolean hasAtLeastOneValidPoint = false;
+
         for (PolylinePoint p : points) {
             if (p != null) {
-                boundsBuilder.include(new org.maplibre.android.geometry.LatLng(p.latitude, p.longitude));
-                hasValidPoint = true;
+                minLat = Math.min(minLat, p.latitude);
+                maxLat = Math.max(maxLat, p.latitude);
+                minLon = Math.min(minLon, p.longitude);
+                maxLon = Math.max(maxLon, p.longitude);
+                hasAtLeastOneValidPoint = true;
             }
         }
-        if (!hasValidPoint) {
-            Log.w(TAG, "No valid points to generate preview for journey " + journey.startTimeMs);
+
+        if (!hasAtLeastOneValidPoint) {
+            Log.w(TAG, "Skipping preview for journey " + journey.startTimeMs + ": no valid points found for bounds calculation.");
             return;
         }
 
-        LatLngBounds journeyBounds;
+        double latSpan = maxLat - minLat;
+        double lonSpan = maxLon - minLon;
+        double paddingFactor = 0.20; // Increased padding to 20% for better visibility
+
+        // Ensure a minimum geographic span for very short journeys or single points
+        double minSpanDegrees = 0.001; // Approx 110 meters. Adjust if needed.
+        // If journeys are often very short, make this smaller (e.g., 0.0005)
+        // If they are longer, this can be larger.
+
+        if (Math.abs(latSpan) < 1E-6 && Math.abs(lonSpan) < 1E-6) { // Essentially a single point
+            minLat -= minSpanDegrees / 2.0;
+            maxLat += minSpanDegrees / 2.0;
+            minLon -= minSpanDegrees / 2.0;
+            maxLon += minSpanDegrees / 2.0;
+        } else {
+            if (latSpan < minSpanDegrees) {
+                double midLat = (minLat + maxLat) / 2.0;
+                minLat = midLat - (minSpanDegrees / 2.0);
+                maxLat = midLat + (minSpanDegrees / 2.0);
+            }
+            if (lonSpan < minSpanDegrees) {
+                double midLon = (minLon + maxLon) / 2.0;
+                minLon = midLon - (minSpanDegrees / 2.0);
+                maxLon = midLon + (minSpanDegrees / 2.0);
+            }
+        }
+
+        // Recalculate spans after ensuring minimum
+        latSpan = maxLat - minLat;
+        lonSpan = maxLon - minLon;
+
+        // Apply padding to the calculated spans
+        minLat -= latSpan * paddingFactor;
+        maxLat += latSpan * paddingFactor;
+        minLon -= lonSpan * paddingFactor;
+        maxLon += lonSpan * paddingFactor;
+
+        LatLngBounds journeyBoundsWithPadding;
         try {
-            journeyBounds = boundsBuilder.build();
-        } catch (IllegalStateException e) {
-            Log.w(TAG, "Error building LatLngBounds for journey " + journey.startTimeMs + ". Likely too few distinct points. Message: " + e.getMessage());
-            if (points.size() >= 1 && points.get(0) != null) {
+            // Ensure NorthEast is (maxLat, maxLon) and SouthWest is (minLat, minLon)
+            journeyBoundsWithPadding = new LatLngBounds.Builder()
+                    .include(new LatLng(maxLat, maxLon))
+                    .include(new LatLng(minLat, minLon))
+                    .build();
+            Log.d(TAG, "Calculated padded bounds for journey " + journey.startTimeMs + ": NE(" + maxLat + "," + maxLon + "), SW(" + minLat + "," + minLon + ")");
+        } catch (Exception e) {
+            Log.e(TAG, "Error building padded LatLngBounds for journey " + journey.startTimeMs, e);
+            // Fallback for safety, though the above logic should prevent most IllegalStateExceptions
+            if (!points.isEmpty() && points.get(0) != null) {
                 PolylinePoint firstPoint = points.get(0);
-                double smallOffset = 0.001;
-                LatLng center = new LatLng(firstPoint.latitude, firstPoint.longitude);
-                try {
-                    journeyBounds = new LatLngBounds.Builder()
-                            .include(new LatLng(center.getLatitude() + smallOffset, center.getLongitude() + smallOffset))
-                            .include(new LatLng(center.getLatitude() - smallOffset, center.getLongitude() - smallOffset))
-                            .build();
-                    Log.d(TAG, "Built fallback bounds for single/co-located point journey: " + journey.startTimeMs);
-                } catch (IllegalStateException ex) {
-                    Log.e(TAG, "Failed to build even fallback bounds for journey " + journey.startTimeMs, ex);
-                    return;
-                }
+                double fallbackOffset = 0.002; // Slightly larger fallback
+                journeyBoundsWithPadding = new LatLngBounds.Builder()
+                        .include(new LatLng(firstPoint.latitude + fallbackOffset, firstPoint.longitude + fallbackOffset))
+                        .include(new LatLng(firstPoint.latitude - fallbackOffset, firstPoint.longitude - fallbackOffset))
+                        .build();
+                Log.w(TAG, "Using fallback bounds for journey " + journey.startTimeMs);
             } else {
+                Log.e(TAG, "Cannot create fallback bounds for journey " + journey.startTimeMs);
                 return;
             }
         }
+        // --- MODIFIED BOUNDS CALCULATION END ---
+
 
         int previewWidthPx = (int) (300 * getResources().getDisplayMetrics().density);
         int previewHeightPx = Math.round(180 * getResources().getDisplayMetrics().density);
@@ -613,26 +662,26 @@ public class JourneyListActivity extends AppCompatActivity implements JourneyAda
             styleUrl = MapManager.getStyleUrl(SettingsActivity.DEFAULT_MAP_STYLE);
             if (styleUrl == null) {
                 Log.e(TAG, "Default Map style URL is also null. Using absolute fallback for snapshot.");
-                styleUrl = "https://demotiles.maplibre.org/style.json";
+                styleUrl = "https://demotiles.maplibre.org/style.json"; // Absolute fallback
             }
         }
 
         final MapSnapshotter.Options options = new MapSnapshotter.Options(previewWidthPx, previewHeightPx)
                 .withStyle(styleUrl)
-                .withRegion(journeyBounds)
+                .withRegion(journeyBoundsWithPadding) // *** USE THE PADDED BOUNDS HERE ***
                 .withLogo(false);
 
         final CountDownLatch latch = new CountDownLatch(1);
         final Bitmap[] snapshotResult = new Bitmap[1];
         final String[] snapshotErrorString = new String[1];
 
-        Log.d(TAG, "Preparing to start snapshot for journey " + journey.startTimeMs + " on UI thread.");
+        Log.d(TAG, "Preparing to start snapshot for journey " + journey.startTimeMs + " on UI thread with region: " + journeyBoundsWithPadding);
 
-        final String finalStyleUrl = styleUrl;
+        final String finalStyleUrl = styleUrl; // For use in lambda
         mainThreadHandler.post(() -> {
             try {
                 Log.d(TAG, "Instantiating MapSnapshotter on UI thread for journey " + journey.startTimeMs + " with style: " + finalStyleUrl);
-                MapSnapshotter snapshotter = new MapSnapshotter(getApplicationContext(), options); // Use ApplicationContext
+                MapSnapshotter snapshotter = new MapSnapshotter(getApplicationContext(), options);
                 Log.d(TAG, "Starting snapshot on UI thread for journey " + journey.startTimeMs);
                 snapshotter.start(snapshot -> {
                     if (snapshot != null) {
@@ -654,10 +703,9 @@ public class JourneyListActivity extends AppCompatActivity implements JourneyAda
             }
         });
 
-
         try {
             Log.d(TAG, "Background thread waiting for snapshot latch for journey " + journey.startTimeMs);
-            latch.await();
+            latch.await(); // Wait for the snapshot to complete on the UI thread
             Log.d(TAG, "Background thread latch released for journey " + journey.startTimeMs);
         } catch (InterruptedException e) {
             Log.e(TAG, "Snapshot generation interrupted while waiting for latch (journey " + journey.startTimeMs + ")", e);
@@ -666,7 +714,8 @@ public class JourneyListActivity extends AppCompatActivity implements JourneyAda
         }
 
         if (snapshotErrorString[0] != null || snapshotResult[0] == null) {
-            Log.e(TAG, "Failed to generate basemap snapshot for journey " + journey.startTimeMs + ". Error: " + snapshotErrorString[0]);
+            Log.e(TAG, "Failed to generate basemap snapshot for journey " + journey.startTimeMs + ". Error: " + (snapshotErrorString[0] != null ? snapshotErrorString[0] : "Snapshot bitmap was null"));
+            // Consider creating a placeholder/error image or skipping
             return;
         }
 
@@ -681,12 +730,15 @@ public class JourneyListActivity extends AppCompatActivity implements JourneyAda
             }
             return;
         } finally {
-            if (basemapBitmap != null && !basemapBitmap.isRecycled() && mutableBasemap != basemapBitmap) {
-                basemapBitmap.recycle();
-                Log.d(TAG, "Recycled original snapshot bitmap after copy for journey " + journey.startTimeMs);
-            } else if (basemapBitmap != null && !basemapBitmap.isRecycled() && mutableBasemap == null) {
-                basemapBitmap.recycle();
-                Log.d(TAG, "Recycled original snapshot bitmap as copy failed for journey " + journey.startTimeMs);
+            // Recycle the original snapshot from MapSnapshotter if a copy was made or if copy failed
+            if (basemapBitmap != null && !basemapBitmap.isRecycled()) {
+                if (mutableBasemap != basemapBitmap) { // Only if copy succeeded and is different
+                    basemapBitmap.recycle();
+                    Log.d(TAG, "Recycled original snapshot bitmap after copy for journey " + journey.startTimeMs);
+                } else if (mutableBasemap == null) { // If copy failed
+                    basemapBitmap.recycle();
+                    Log.d(TAG, "Recycled original snapshot bitmap as copy failed for journey " + journey.startTimeMs);
+                }
             }
         }
 
@@ -696,8 +748,9 @@ public class JourneyListActivity extends AppCompatActivity implements JourneyAda
         }
 
         int polylineColor = JourneyListActivity.getColorForTransportMode(this, journey.getDominantMode());
-        float polylineWidthPx = 3f * getResources().getDisplayMetrics().density;
+        float polylineWidthPx = 3f * getResources().getDisplayMetrics().density; // Example: 3dp polyline width
 
+        // Now, MapPreviewGenerator draws onto the basemap that should already be correctly framed.
         Bitmap finalPreview = MapPreviewGenerator.drawPolylineOnBasemap(mutableBasemap, points, polylineColor, polylineWidthPx);
 
         if (finalPreview != null) {
@@ -707,7 +760,7 @@ public class JourneyListActivity extends AppCompatActivity implements JourneyAda
                 journeyPreviewFilePaths.put(journey.startTimeMs, previewFile.getAbsolutePath());
             } catch (IOException e) {
                 Log.e(TAG, "Error saving final preview for journey " + journey.startTimeMs, e);
-            } catch (Exception e) {
+            } catch (Exception e) { // Catch any other unexpected errors during save
                 Log.e(TAG, "Unexpected error saving final preview for " + journey.startTimeMs, e);
             } finally {
                 if (finalPreview != null && !finalPreview.isRecycled()) {
@@ -717,12 +770,16 @@ public class JourneyListActivity extends AppCompatActivity implements JourneyAda
             }
         } else {
             Log.e(TAG, "Failed to draw polyline on basemap for journey " + journey.startTimeMs + " (finalPreview was null).");
+            // If finalPreview is null, it means drawPolylineOnBasemap returned null,
+            // mutableBasemap was potentially its input if it wasn't modified in place.
             if (mutableBasemap != null && !mutableBasemap.isRecycled()) {
                 mutableBasemap.recycle();
                 Log.d(TAG, "Recycled mutableBasemap as finalPreview was null for journey " + journey.startTimeMs);
             }
         }
     }
+
+// Make sure the rest of JourneyListActivity.java remains the same.
 
     private void updateUiWithJourneys(List<JourneyDetails> finalJourneys) {
         this.journeyDetailsList.clear();
