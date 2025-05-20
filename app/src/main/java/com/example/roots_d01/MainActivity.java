@@ -1040,13 +1040,13 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
         // Ensure Layer exists and set initial style
         LineLayer currentLayer = style.getLayerAs(CURRENT_TRACK_LAYER_ID);
-        int initialColor = getColorForTransport(initialTransportMode); // Use helper
+        int recordingColor = Color.BLACK;
         float initialWidth = (float) polylineThickness; // Use loaded setting
 
         if (currentLayer == null) {
             currentLayer = new LineLayer(CURRENT_TRACK_LAYER_ID, CURRENT_TRACK_SOURCE_ID);
             currentLayer.setProperties(
-                    PropertyFactory.lineColor(initialColor),
+                    PropertyFactory.lineColor(recordingColor),
                     PropertyFactory.lineWidth(initialWidth),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
@@ -1064,7 +1064,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         } else {
             // Update existing layer's style
             currentLayer.setProperties(
-                    PropertyFactory.lineColor(initialColor),
+                    PropertyFactory.lineColor(recordingColor),
                     PropertyFactory.lineWidth(initialWidth),
                     PropertyFactory.visibility(Property.VISIBLE)
             );
@@ -5052,16 +5052,16 @@ private void navigateJourney(int direction) {
 
         LineLayer layer = style.getLayerAs(CURRENT_TRACK_LAYER_ID);
         if (layer != null) {
-            int color = getColorForTransport(currentMode); // Use your existing helper
+            int recordingColor = Color.BLACK;
             float width = (float) polylineThickness; // Use loaded setting
 
             // Apply new properties
             layer.setProperties(
-                    PropertyFactory.lineColor(color),
+                    PropertyFactory.lineColor(recordingColor),
                     PropertyFactory.lineWidth(width)
                     // Add other properties like opacity if needed
             );
-            Log.v(TAG, "Updated current track layer style. Mode: " + currentMode + ", Color: " + String.format("#%06X", (0xFFFFFF & color)));
+            Log.v(TAG, "Updated current track layer style. Mode (ignored for color): " + currentMode + ", Color: BLACK");
         } else {
             Log.w(TAG, "updateCurrentPolylineStyle: Layer '" + CURRENT_TRACK_LAYER_ID + "' not found.");
         }
@@ -5079,12 +5079,10 @@ private void navigateJourney(int direction) {
 
         LineLayer layer = style.getLayerAs(CURRENT_TRACK_LAYER_ID);
         if (layer != null) {
-            int newColor = getColorForTransport(transportMode);
-            // Optional: Check if color actually changed before setting
-            // Object currentColorObj = layer.getLineColor().getValue(); // Getting color can be complex
-            // if (currentColorObj instanceof Integer && ((Integer)currentColorObj) == newColor) return;
+            int recordingColor = Color.BLACK;
 
-            layer.setProperties(PropertyFactory.lineColor(newColor));
+
+            layer.setProperties(PropertyFactory.lineColor(recordingColor));
             Log.v(TAG, "Updated current track layer color for mode: " + transportMode); // Verbose log
         } else {
             Log.w(TAG, "Cannot update current polyline layer color: Layer '" + CURRENT_TRACK_LAYER_ID + "' not found.");
