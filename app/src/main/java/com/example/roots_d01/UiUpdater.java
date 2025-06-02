@@ -97,45 +97,47 @@ public class UiUpdater {
     }
 
 
-    // --- Method: updateStartStopButtonState (Moved from MainActivity) ---
+    // In UiUpdater.java
+    public void updateStartStopButtonState(boolean isGeneralTrackingActive, @Nullable String effectiveMode) {
+        // Note: this.startStopFab in UiUpdater corresponds to manualStopFab in MainActivity
 
-    /**
-     * Updates the visual state of the Start/Stop FAB and the transport mode icon's background/animation.
-     *
-     * @param isTrackingActive The current tracking state from MainActivity.
-     */
-    public void updateStartStopButtonState(boolean isTrackingActive, @Nullable String effectiveMode) {
-        // --- Update FAB State ---
-        if (this.startStopFab == null) { // Use member variable
-            Log.w(TAG, "updateStartStopButtonState: startStopFab is null!");
-        } else {
-            if (isTrackingActive) {
-                this.startStopFab.setImageResource(R.drawable.ic_stop);
-                this.startStopFab.setBackgroundTintList(ColorStateList.valueOf(Color.RED));
-                Log.d(TAG, "updateStartStopButtonState: Set FAB to STOP");
+        if (this.startStopFab == null) {
+            Log.w(TAG, "updateStartStopButtonState: startStopFab (manualStopFab) is null!");
+            // Do not return early, as transportModeIcon might still need updating
+        }
+
+        // Determine if the FAB should be visible
+        boolean isActuallyMoving = false;
+        if (isGeneralTrackingActive) {
+            isActuallyMoving = effectiveMode != null &&
+                    !effectiveMode.equals("Still") &&
+                    !effectiveMode.equals("Unknown");
+        }
+
+        // Set visibility and appearance of the FAB
+        if (this.startStopFab != null) {
+            if (isActuallyMoving) {
+                this.startStopFab.setVisibility(View.VISIBLE);
+                this.startStopFab.setImageResource(R.drawable.ic_stop); // Stop icon
+                // Ensure a consistent stop color, e.g., using a color resource
+                int stopColor = ContextCompat.getColor(context, R.color.md_theme_error); // Or any distinct color for stop
+                this.startStopFab.setBackgroundTintList(ColorStateList.valueOf(stopColor));
+                Log.d(TAG, "UiUpdater: Set manualStopFab VISIBLE (Tracking AND Moving). Mode: " + effectiveMode);
             } else {
-                this.startStopFab.setImageResource(R.drawable.ic_play);
-                // Get primary color using member context
-                // Explicitly set the background color for the inactive (play) state
-                int explicitPlayColor = ContextCompat.getColor(context, R.color.md_theme_dark_errorContainer); // Use purple_500 or another opaque color like R.color.black
-                this.startStopFab.setBackgroundTintList(ColorStateList.valueOf(explicitPlayColor));
-                Log.d(TAG, "updateStartStopButtonState: Set FAB to PLAY");
+                this.startStopFab.setVisibility(View.GONE);
+                Log.d(TAG, "UiUpdater: Set manualStopFab GONE (Not Tracking or Not Moving). Tracking: " + isGeneralTrackingActive + ", Mode: " + effectiveMode);
             }
         }
 
-        boolean showIconAsActive = isTrackingActive &&
-                effectiveMode != null &&
-                !effectiveMode.equals("Still") &&
-                !effectiveMode.equals("Unknown");
+        // --- Existing Transport Icon Background (Outline) & Animation ---
+        // This part remains based on general tracking and if the mode indicates movement
+        boolean showTransportIconAsActive = isGeneralTrackingActive && isActuallyMoving; // Simplified: show if tracking & moving
 
-        // --- Update Transport Icon Background (Outline) & Animation ---
         if (this.transportModeIcon != null) {
-            // Use the calculated showIconAsActive flag
-            if (showIconAsActive) {
+            if (showTransportIconAsActive) {
                 this.transportModeIcon.setVisibility(View.VISIBLE);
                 Log.d(TAG, "updateStartStopButtonState: Set transport icon background to ACTIVE (with stroke)");
 
-                // Start pulsing animation (existing logic)
                 if (this.transportModeIcon.getAnimation() == null) {
                     if (this.pulseAnimation == null) {
                         this.pulseAnimation = new AlphaAnimation(1.0f, 0.4f);
@@ -144,17 +146,15 @@ public class UiUpdater {
                         this.pulseAnimation.setRepeatCount(Animation.INFINITE);
                     }
                     this.transportModeIcon.startAnimation(this.pulseAnimation);
-                    Log.d(TAG, "updateStartStopButtonState: Started pulsing animation");
+                    Log.d(TAG, "updateStartStopButtonState: Started pulsing animation for transport icon");
                 }
-            } else { // Tracking is inactive OR mode is Still/Unknown
+            } else {
                 this.transportModeIcon.setVisibility(View.GONE);
-                Log.d(TAG, "updateStartStopButtonState: Set transport icon background to INACTIVE (no stroke)");
-
-                // Stop pulsing animation (existing logic)
+                Log.d(TAG, "updateStartStopButtonState: Set transport icon background to INACTIVE (or hidden)");
                 if (this.transportModeIcon.getAnimation() != null) {
                     this.transportModeIcon.clearAnimation();
                     this.transportModeIcon.setAlpha(1.0f); // Reset alpha
-                    Log.d(TAG, "updateStartStopButtonState: Cleared pulsing animation");
+                    Log.d(TAG, "updateStartStopButtonState: Cleared pulsing animation for transport icon");
                 }
             }
         } else {

@@ -1696,10 +1696,17 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                     manualStopFab.setVisibility(MainActivity.this.isTrackingActive ? View.VISIBLE : View.GONE);
                 }
 
-                if (uiUpdater != null) { // Update general UI state
+                if (uiUpdater != null) {
+                    // Try to get an initial effective mode from the service if possible.
+                    // If not available, pass null or "Unknown".
+                    String initialEffectiveMode = "Unknown"; // Default
+                    // if (mService.canGetCurrentEffectiveMode()) { // Hypothetical method
+                    // initialEffectiveMode = mService.getCurrentEffectiveMode();
+                    // }
+                    uiUpdater.updateStartStopButtonState(MainActivity.this.isTrackingActive, initialEffectiveMode);
+
                     String modeFromPrefs = getSharedPreferences("Settings", MODE_PRIVATE).getString(KEY_TRACKING_MODE, MODE_AUTO);
                     uiUpdater.updateUiBasedOnTrackingMode(modeFromPrefs, MainActivity.this.isTrackingActive);
-                    uiUpdater.updateStartStopButtonState(MainActivity.this.isTrackingActive, getCurrentEffectiveMode()); // Also update start/stop button
                 }
                 updateCurrentPolylineFromService();
             } else {
@@ -1761,7 +1768,12 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
                 // 4. Update GPS Indicator
                 if (uiUpdater != null) {
-                    uiUpdater.updateGPSIndicatorFromLocation(location);
+                    // This call will now also set the visibility and state of manualStopFab
+                    uiUpdater.updateStartStopButtonState(MainActivity.this.isTrackingActive, modeForIcon); // modeForIcon is the effectiveMode from broadcast
+                    uiUpdater.updateGPSIndicatorFromLocation(location); // Keep this
+                    // The transportModeIcon specific image is set by updateTransportModeIcon,
+                    // its active state (pulsing) is handled by updateStartStopButtonState.
+                    uiUpdater.updateTransportModeIcon(modeForIcon);
                 }
 
                 // 5. Update Current Polyline & Status (only if tracking is generally active)
@@ -1855,27 +1867,24 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             }
             // --- Handle Tracking State Changes ---
             else if (LocationTrackingService.ACTION_TRACKING_STATE_CHANGED.equals(action)) {
-                Log.w("StateSyncDebug", "ACTIVITY: Received ACTION_TRACKING_STATE_CHANGED.");
                 boolean serviceIsTracking = intent.getBooleanExtra(LocationTrackingService.EXTRA_IS_TRACKING, false);
-                Log.w("StateSyncDebug", "ACTIVITY: Service says tracking = " + serviceIsTracking + ". Current Activity isTrackingActive = " + MainActivity.this.isTrackingActive);
-
-                SharedPreferences prefs = getSharedPreferences("Settings", MODE_PRIVATE);
-                String currentMode = prefs.getString(KEY_TRACKING_MODE, MODE_AUTO);
-
-                // Only update if the state actually changed in MainActivity
                 if (MainActivity.this.isTrackingActive != serviceIsTracking) {
                     MainActivity.this.isTrackingActive = serviceIsTracking;
-                    Log.w("StateSyncDebug", "ACTIVITY: UPDATED MainActivity.isTrackingActive to = " + MainActivity.this.isTrackingActive);
+                    Log.w(TAG_SYNC, "ACTIVITY: UPDATED MainActivity.isTrackingActive to = " + MainActivity.this.isTrackingActive);
+                }
 
-                    // Update button states etc.
-                    if (uiUpdater != null) {
-                        // Pass the *new* tracking state and a default mode ("Still" is safe)
-                        // The specific mode icon/text will be updated by location broadcasts if tracking is active
-                        uiUpdater.updateStartStopButtonState(MainActivity.this.isTrackingActive, "Still");
-                        uiUpdater.updateUiBasedOnTrackingMode(currentMode, MainActivity.this.isTrackingActive);
-                    }
+                if (uiUpdater != null) {
+                    SharedPreferences prefs = getSharedPreferences("Settings", MODE_PRIVATE);
+                    String currentModePref = prefs.getString(KEY_TRACKING_MODE, MODE_AUTO);
+                    // When tracking state changes, the effective mode might be initially unknown or based on last known.
+                    // Pass null or a sensible default; the next location broadcast will refine it.
+                    String modeForFabUpdate = serviceIsTracking ? getCurrentEffectiveMode() : null;
+                    uiUpdater.updateStartStopButtonState(serviceIsTracking, modeForFabUpdate);
+                    uiUpdater.updateUiBasedOnTrackingMode(currentModePref, serviceIsTracking); // This handles other general UI
 
-                    if (serviceIsTracking) {
+
+
+                if (serviceIsTracking) {
                         Log.d("MainActivityReceiver", "Tracking started broadcast received.");
                         // Visual setup for current polyline happens in startTracking() or location broadcast
                     } else {
@@ -2316,26 +2325,17 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private void loadAndApplyInitialUiState() {
         Log.d(TAG, "loadAndApplyInitialUiState: Applying UI based on current tracking state (isTrackingActive=" + isTrackingActive + ")");
 
-        // The visibility of manualStopFab is now primarily driven by isTrackingActive,
-        // which gets updated via service broadcasts/connection.
-        // We can set an initial state here if isTrackingActive is already known.
-        if (manualStopFab != null) {
-            manualStopFab.setVisibility(isTrackingActive ? View.VISIBLE : View.GONE);
-        }
-
-        // The startManualRecordButton related logic is removed.
-
-        // Update other UI elements via UiUpdater if needed, based on isTrackingActive
+        // The visibility of manualStopFab is now driven by uiUpdater.
+        // Call uiUpdater to set the initial state of all relevant UI components.
         if (uiUpdater != null) {
-            // This ensures the transportModeIcon and other elements reflect the current tracking state.
-            uiUpdater.updateStartStopButtonState(isTrackingActive, getCurrentEffectiveMode());
+            String effectiveMode = getCurrentEffectiveMode(); // Or a suitable default if mode isn't known yet
+            uiUpdater.updateStartStopButtonState(isTrackingActive, effectiveMode);
 
             SharedPreferences prefs = getSharedPreferences("Settings", MODE_PRIVATE);
             String currentModePref = prefs.getString(KEY_TRACKING_MODE, MODE_AUTO);
-            // updateUiBasedOnTrackingMode might be less relevant now if manual mode switch is gone,
-            // but call it if it handles other general UI aspects.
             uiUpdater.updateUiBasedOnTrackingMode(currentModePref, isTrackingActive);
         }
+        // Remove any direct manualStopFab.setVisibility() calls from here.
     }
 
 
