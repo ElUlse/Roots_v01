@@ -136,7 +136,7 @@ public class UiUpdater {
         if (this.transportModeIcon != null) {
             if (showTransportIconAsActive) {
                 this.transportModeIcon.setVisibility(View.VISIBLE);
-                Log.d(TAG, "updateStartStopButtonState: Set transport icon background to ACTIVE (with stroke)");
+                this.transportModeIcon.setBackgroundResource(R.drawable.circle_button_active);
 
                 if (this.transportModeIcon.getAnimation() == null) {
                     if (this.pulseAnimation == null) {
