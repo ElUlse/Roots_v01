@@ -149,7 +149,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private FloatingActionButton startStopFab;
     private boolean isTrackingActive = false;
     private FloatingActionButton manualStopFab;
-    private MaterialButton startManualRecordButton;
     private boolean isManualTrackingActive = false;
     private static final String STATE_IS_MANUAL_TRACKING = "IS_MANUAL_TRACKING_ACTIVE"; // For saving state
 
@@ -525,7 +524,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             transportModeIcon = findViewById(R.id.transportModeIcon);
             manualStopFab = findViewById(R.id.manualStopFab);
             Log.d("FAB_DEBUG", "onCreate: findViewById(R.id.manualStopFab) result is " + (manualStopFab == null ? "NULL" : "NOT NULL")); // <-- ADD THIS LINE
-            startManualRecordButton = findViewById(R.id.startManualRecordButton);
             tvBottomJourneyStartTime = findViewById(R.id.tv_bottom_journey_start_time);
             tvBottomJourneyEndTime = findViewById(R.id.tv_bottom_journey_end_time);
             tvBottomJourneyDuration = findViewById(R.id.tv_bottom_journey_duration);
@@ -773,29 +771,10 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             Log.e(TAG, "recenterButton member variable is null!");
         }
 
-        // Start Manual Record listener
-        if (startManualRecordButton != null) { // Use member variable
-            startManualRecordButton.setOnClickListener(v -> {
-                Log.i(TAG, "Start Manual Record button clicked.");
-                if (!isTrackingActive && !isManualTrackingActive) {
-                    startManualTracking();
-                } else {
-                    Toast.makeText(MainActivity.this, "Tracking is already active.", Toast.LENGTH_SHORT).show();
-                }
-            });
-        } else {
-            Log.e(TAG, "startManualRecordButton member variable is null!");
-        }
-
-        // Manual Stop FAB listener (Corrected)
         if (manualStopFab != null) { // Use member variable (and correct null check)
-            manualStopFab.setOnClickListener(v -> { // Use correct variable name
-                if (isManualTrackingActive) {
-                    Log.i(TAG, "Manual Stop FAB clicked.");
-                    stopManualTracking();
-                } else {
-                    Log.w(TAG, "Manual Stop FAB clicked but manual tracking not active?");
-                }
+            manualStopFab.setOnClickListener(v -> {
+                Log.i(TAG, "Manual Stop FAB clicked (general stop)."); // Updated log message
+                stopCurrentTrackingSession(); // MODIFIED: Call the new general stop method
             });
         } else {
             Log.e(TAG, "manualStopFab member variable is NULL when trying to set listener!");
@@ -849,79 +828,35 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     }
 
 
-    private void startManualTracking() {
-        // Permission check (optional redundancy, good practice)
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, "Location permission needed", Toast.LENGTH_SHORT).show();
-            permissionHelper.checkAndRequestBasePermissions();
-            return;
+    private void stopCurrentTrackingSession() { // Was stopManualTracking()
+        Log.i(TAG, "Stopping Current Tracking Session (initiated by FAB)...");
+
+        // Hide the FAB immediately for responsiveness.
+        // The service broadcast will also update UI, but this makes it quicker.
+        if (manualStopFab != null) {
+            manualStopFab.setVisibility(View.GONE);
         }
 
-        Log.i(TAG, "Starting Manual Tracking...");
-        isManualTrackingActive = true;
-        isTrackingActive = true; // General tracking flag also true
-
-        // Update UI immediately
-        startManualRecordButton.setVisibility(View.GONE);
-        manualStopFab.setVisibility(View.VISIBLE);
-        // Set default override (e.g., Walking) and broadcast it
-        applyOverrideMode("Walking"); // Or prompt user? For now, default to walking.
-        if (uiUpdater != null) {
-            uiUpdater.updateStartStopButtonState(true, "Walking"); // Update icon state
-        }
-
-
-        // Start the service if it's not already running
-        // (It might be running in auto mode but not *recording* yet)
-        // Binding/Starting logic might need adjustment depending on how auto vs manual interact
-        startLocationService(); // Ensure service is running
-
-        // Initialize the visual polyline for the current track
-        initializeCurrentPolyline("Walking"); // Use the initial override mode
-        updateCurrentPolylineStyle("Walking");
-        updateHistoricalJourneyVisibility("Walking"); // Hide unrelated if needed
-
-        // Start blinking animator
-        if (currentPolylineAnimator != null ) {
-            Log.i(TAG, "Calling startBlinking() from startManualTracking()");
-            currentPolylineAnimator.startBlinking();
-        }
-
-        Toast.makeText(this, "Manual Tracking Started", Toast.LENGTH_SHORT).show();
-    }
-
-    private void stopManualTracking() {
-        Log.i(TAG, "Stopping Manual Tracking...");
-        isManualTrackingActive = false;
-        isTrackingActive = false; // Also set general tracking flag to false
-
-        clearOverrideMode(); // Clear any manual override mode
-
-        // Update UI immediately
-        manualStopFab.setVisibility(View.GONE);
-        startManualRecordButton.setVisibility(View.VISIBLE);
-        if (uiUpdater != null) {
-            uiUpdater.updateStartStopButtonState(false, null); // Set inactive icon state
-        }
-
-        // Stop the service - Check if this is desired.
-        // If you want Auto mode to potentially take over immediately, maybe DON'T stop the service here.
-        // Let's assume for now stopping manual tracking also stops the service until Auto restarts it.
+        // Stop the LocationTrackingService. This should trigger its onDestroy,
+        // which in turn calls polylineManager.finalizeAndSaveCurrentSegment().
         Intent serviceIntent = new Intent(this, LocationTrackingService.class);
         stopService(serviceIntent);
-        Log.d(TAG, "Attempted to stop LocationTrackingService after manual stop.");
+        Log.d(TAG, "Attempted to stop LocationTrackingService via stopCurrentTrackingSession.");
 
-        // Stop blinking animator
+        // Stop blinking animation if it's running.
         if (currentPolylineAnimator != null) {
-            Log.d("RecordingIndicator", "Stopping blinking due to manual stop.");
+            Log.d("RecordingIndicator", "Stopping blinking due to explicit stop command.");
             currentPolylineAnimator.stopBlinking();
         }
-        // Clear the current visual polyline
+
+        // Clear the visual representation of the current track on the map.
         currentTrackLatLngs.clear();
         updateCurrentPolylineSource();
-        updateHistoricalJourneyVisibility(null); // Show all historical again
 
-        Toast.makeText(this, "Manual Tracking Stopped", Toast.LENGTH_SHORT).show();
+        // Update visibility of historical journeys based on tracking stopping.
+        updateHistoricalJourneyVisibility(null);
+
+        Toast.makeText(this, "Tracking Stopped", Toast.LENGTH_SHORT).show();
     }
 
 
@@ -1215,6 +1150,18 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         }
         // Ensure user marker exists via the manager
         requestActivityUpdatesPermission();
+
+
+        // Explicitly set manualStopFab visibility
+        if (manualStopFab != null) {
+            manualStopFab.setVisibility(isTrackingActive ? View.VISIBLE : View.GONE); // CORRECTED: Use isTrackingActive
+        }
+
+        if (uiUpdater != null) {
+            // Make sure this updates the overall UI correctly, including potentially
+            // the transportModeIcon's state.
+            uiUpdater.updateStartStopButtonState(MainActivity.this.isTrackingActive, getCurrentEffectiveMode());
+        }
 
         // **Crucially, the request to update the *current* polyline
         // is now triggered from onServiceConnected *or* can be called here
@@ -1742,9 +1689,12 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
             if (mService != null) {
                 boolean serviceIsTracking = mService.isCurrentlyTracking();
-                Log.w(TAG_SYNC, "ACTIVITY onServiceConnected: Service says tracking = " + serviceIsTracking + ". Current Activity flag was = " + MainActivity.this.isTrackingActive);
                 MainActivity.this.isTrackingActive = serviceIsTracking; // Sync state
-                Log.w(TAG_SYNC, "ACTIVITY onServiceConnected: UPDATED MainActivity.isTrackingActive to = " + MainActivity.this.isTrackingActive);
+
+                // Update manualStopFab visibility
+                if (manualStopFab != null) {
+                    manualStopFab.setVisibility(MainActivity.this.isTrackingActive ? View.VISIBLE : View.GONE);
+                }
 
                 if (uiUpdater != null) { // Update general UI state
                     String modeFromPrefs = getSharedPreferences("Settings", MODE_PRIVATE).getString(KEY_TRACKING_MODE, MODE_AUTO);
@@ -2364,24 +2314,27 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
 
     private void loadAndApplyInitialUiState() {
-        // SharedPreferences prefs = getSharedPreferences("Settings", MODE_PRIVATE); // No longer need mode pref here
-        // String trackingMode = prefs.getString(KEY_TRACKING_MODE, MODE_AUTO); // No longer need mode pref here
+        Log.d(TAG, "loadAndApplyInitialUiState: Applying UI based on current tracking state (isTrackingActive=" + isTrackingActive + ")");
 
-        Log.d(TAG, "loadAndApplyInitialUiState: Applying UI based on isManualTrackingActive=" + isManualTrackingActive);
-
-        if (isManualTrackingActive) {
-            startManualRecordButton.setVisibility(View.GONE);
-            manualStopFab.setVisibility(View.VISIBLE);
-            // Optionally update label and icon state via uiUpdater if needed on initial load
-        } else {
-            startManualRecordButton.setVisibility(View.VISIBLE);
-            manualStopFab.setVisibility(View.GONE);
+        // The visibility of manualStopFab is now primarily driven by isTrackingActive,
+        // which gets updated via service broadcasts/connection.
+        // We can set an initial state here if isTrackingActive is already known.
+        if (manualStopFab != null) {
+            manualStopFab.setVisibility(isTrackingActive ? View.VISIBLE : View.GONE);
         }
 
-        // Update general tracking UI elements if needed based on general isTrackingActive flag
+        // The startManualRecordButton related logic is removed.
+
+        // Update other UI elements via UiUpdater if needed, based on isTrackingActive
         if (uiUpdater != null) {
-            uiUpdater.updateStartStopButtonState(isTrackingActive, overrideMode); // Reflect general state
-            // Initial status label might be set here or by receiver
+            // This ensures the transportModeIcon and other elements reflect the current tracking state.
+            uiUpdater.updateStartStopButtonState(isTrackingActive, getCurrentEffectiveMode());
+
+            SharedPreferences prefs = getSharedPreferences("Settings", MODE_PRIVATE);
+            String currentModePref = prefs.getString(KEY_TRACKING_MODE, MODE_AUTO);
+            // updateUiBasedOnTrackingMode might be less relevant now if manual mode switch is gone,
+            // but call it if it handles other general UI aspects.
+            uiUpdater.updateUiBasedOnTrackingMode(currentModePref, isTrackingActive);
         }
     }
 
