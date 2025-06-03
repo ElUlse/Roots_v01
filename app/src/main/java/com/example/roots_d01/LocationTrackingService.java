@@ -178,20 +178,25 @@ public class LocationTrackingService extends Service {
         createLocationCallback();
     }
 
-    // ... onStartCommand ...
-    @RequiresPermission(Manifest.permission.ACTIVITY_RECOGNITION)
+    // Inside LocationTrackingService.java
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.i(TAG, "Service onStartCommand. Flags=" + flags + ", StartId=" + startId);
-        Log.w("AutoTrack_Service", "SERVICE onStartCommand() CALLED"); // Use WARN
+
+        // Check and clear the UserManuallyStopped flag if it was set
+        // Ensure "AppTrackingState" and "UserManuallyStopped" match what you used in MainActivity
+        SharedPreferences prefs = getSharedPreferences("AppTrackingState", Context.MODE_PRIVATE);
+        if (prefs.getBoolean("UserManuallyStopped", false)) {
+            Log.i(TAG, "LocationTrackingService starting and UserManuallyStopped flag was true. Clearing the flag, allowing tracking to potentially resume if other conditions met.");
+            prefs.edit().putBoolean("UserManuallyStopped", false).apply();
+        }
+
         Notification notification = createForegroundNotification();
         startForeground(NOTIFICATION_ID, notification);
         Log.d(TAG, "Service started in foreground");
 
-        // Request Location Updates
-        startTracking();
-        // Request Activity Updates (ensure permission is granted first by Activity)
-        requestActivityUpdatesInternal();
+        startTracking(); // This is the service's own method to request location updates
+        requestActivityUpdatesInternal(); // For activity recognition
 
         return START_STICKY;
     }
@@ -537,33 +542,42 @@ public class LocationTrackingService extends Service {
     }
 
     /** Manages auto-start and auto-stop timers based on detected activity. */
+// Inside LocationTrackingService.java
+
     private void handleAutoStartStop(String detectedMode, long currentTime) {
         boolean isMoving = detectedMode.equals("Walking") || detectedMode.equals("Bicycling") || detectedMode.equals("In Vehicle");
         boolean isStill = detectedMode.equals("Still");
 
-        SharedPreferences prefs = getSharedPreferences("Settings", MODE_PRIVATE);
-        String trackingModePref = prefs.getString(MainActivity.KEY_TRACKING_MODE, MainActivity.MODE_AUTO);
+        // Ensure "AppTrackingState" and "UserManuallyStopped" match what you used in MainActivity
+        SharedPreferences appPrefs = getSharedPreferences("AppTrackingState", MODE_PRIVATE);
+        boolean userManuallyStopped = appPrefs.getBoolean("UserManuallyStopped", false);
+
+        SharedPreferences settingsPrefs = getSharedPreferences("Settings", MODE_PRIVATE);
+        String trackingModePref = settingsPrefs.getString(MainActivity.KEY_TRACKING_MODE, MainActivity.MODE_AUTO);
         boolean isAutoMode = MainActivity.MODE_AUTO.equals(trackingModePref);
 
         if (isMoving) {
-            // Cancel any pending auto-stop
             if (stopRunnable != null) {
                 Log.d("AutoTrack_Service", "Movement detected (" + detectedMode + "), cancelling pending auto-stop.");
                 stopDelayHandler.removeCallbacks(stopRunnable);
                 stopRunnable = null;
             }
             // Handle Auto-Start
-            if (isAutoMode && !isAutoTrackingCurrentlyActive) {
-                // You might re-introduce the MIN_DURATION_FOR_AUTO_START_MS check here if needed
-                Log.i("AutoTrack_Service", "Auto-Start Triggered by movement: " + detectedMode);
-                startAutoTracking();
+            if (isAutoMode && !isAutoTrackingCurrentlyActive) { // Check if service isn't already auto-tracking
+                if (userManuallyStopped) {
+                    Log.i("AutoTrack_Service", "Auto-start conditions met for mode '" + detectedMode + "', but prevented because UserManuallyStopped is true.");
+                    // Do NOT start auto-tracking
+                } else {
+                    Log.i("AutoTrack_Service", "Auto-Start Triggered by movement: " + detectedMode);
+                    startAutoTracking(); // Proceed with auto-tracking
+                }
             }
         } else if (isStill) {
             // Handle Auto-Stop (Only if in Auto mode, tracking, AND NOT latched)
             if (isAutoMode && isAutoTrackingCurrentlyActive && latchedMode == null) { // Check if NOT latched
                 if (stopRunnable == null) {
                     Log.w("AutoTrack_Service", "STILL detected (and not latched), scheduling auto-stop timer (" + AUTO_STOP_DELAY_MS + "ms).");
-                    stopRunnable = this::stopAutoTracking; // Ensure stopAutoTracking method exists
+                    stopRunnable = this::stopAutoTracking;
                     stopDelayHandler.postDelayed(stopRunnable, AUTO_STOP_DELAY_MS);
                 } else {
                     Log.d("AutoTrack_Service", "STILL detected (and not latched), auto-stop timer already scheduled.");
@@ -572,7 +586,6 @@ public class LocationTrackingService extends Service {
                 Log.d(TAG_LATCH, "STILL detected, but currently latched. Auto-stop deferred.");
             }
         } else { // Unknown or other modes
-            // Cancel pending auto-stop
             if (stopRunnable != null) {
                 Log.d("AutoTrack_Service", "UNKNOWN detected, cancelling pending auto-stop.");
                 stopDelayHandler.removeCallbacks(stopRunnable);

@@ -831,10 +831,20 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private void stopCurrentTrackingSession() { // Was stopManualTracking()
         Log.i(TAG, "Stopping Current Tracking Session (initiated by FAB)...");
 
-        // Hide the FAB immediately for responsiveness.
-        // The service broadcast will also update UI, but this makes it quicker.
+        // Set the flag indicating user manually stopped
+        SharedPreferences prefs = getSharedPreferences("AppTrackingState", MODE_PRIVATE);
+        prefs.edit().putBoolean("UserManuallyStopped", true).apply();
+        Log.i(TAG, "UserManuallyStopped flag SET to true.");
+
+        MainActivity.this.isTrackingActive = false; // Update activity's tracking state
+
         if (manualStopFab != null) {
             manualStopFab.setVisibility(View.GONE);
+        }
+        if (uiUpdater != null) {
+            // Update general UI state for inactive tracking
+            uiUpdater.updateStartStopButtonState(false, null);
+            // You might also want to update other UI elements via uiUpdater.updateUiBasedOnTrackingMode(...)
         }
 
         // Stop the LocationTrackingService. This should trigger its onDestroy,
@@ -845,14 +855,12 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
         // Stop blinking animation if it's running.
         if (currentPolylineAnimator != null) {
-            Log.d("RecordingIndicator", "Stopping blinking due to explicit stop command.");
             currentPolylineAnimator.stopBlinking();
         }
 
         // Clear the visual representation of the current track on the map.
         currentTrackLatLngs.clear();
         updateCurrentPolylineSource();
-
         // Update visibility of historical journeys based on tracking stopping.
         updateHistoricalJourneyVisibility(null);
 
