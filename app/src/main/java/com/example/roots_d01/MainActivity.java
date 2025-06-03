@@ -251,7 +251,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     private static final String TAG_HEATMAP = "HeatmapData"; // For logging related to heatmap
 
 
-
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -1088,7 +1087,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         super.onResume();
         Log.d(TAG_LOAD, "MainActivity onResume CALLED");
 
-
         // Load settings *before* deciding on sensor registration
         loadSettings();
 
@@ -1103,7 +1101,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                 mapManager.unregisterSensorListener();
                 // Disable manual rotation gesture if map is ready
                 if (maplibreMap != null) {
-                    // *** THIS IS THE KEY LINE for onResume ***
                     maplibreMap.getUiSettings().setRotateGesturesEnabled(false);
                 } else {
                 }
@@ -1113,7 +1110,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                 mapManager.registerSensorListener();
                 // Enable manual rotation gesture if map is ready
                 if (maplibreMap != null) {
-                    // *** THIS IS THE KEY LINE for onResume ***
                     maplibreMap.getUiSettings().setRotateGesturesEnabled(true);
                 } else {
                 }
@@ -1135,6 +1131,32 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             // Still call mapView.onResume() if mapView exists, even if manager is null
             if (mapView != null) {
                 mapView.onResume();
+            }
+        }
+
+        // Conditional Journey Data Loading
+        if (mainActivityForceRefreshJourneys || !mainActivityJourneysEverLoaded) {
+            if (permissionHelper != null && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                Log.i(TAG_LOAD, "onResume: Triggering journeyManager.loadAllPolylineData(). ForceRefresh=" + mainActivityForceRefreshJourneys + ", EverLoaded=" + mainActivityJourneysEverLoaded);
+                if (journeyManager != null) {
+                    // JourneyManager's loadAllPolylineData should have its own internal 'isLoading' flag
+                    // to prevent concurrent execution if called rapidly.
+                    journeyManager.loadAllPolylineData();
+                } else {
+                    Log.e(TAG_LOAD, "onResume: journeyManager is null, cannot load journey data.");
+                }
+            } else {
+                Log.w(TAG_LOAD, "onResume: Cannot load journey data - permission not granted or permissionHelper is null.");
+                // If permissions are granted later, onLocationPermissionGranted will handle the initial load.
+            }
+        } else {
+            Log.i(TAG_LOAD, "onResume: Journeys considered already loaded and no forced refresh. Applying visibility rules to existing map layers.");
+            // If data is loaded and no refresh needed, just ensure visibility rules are applied to current map layers.
+            // This is important if filters or tracking state changed while MainActivity was paused.
+            if (maplibreMap != null && maplibreMap.getStyle() != null && maplibreMap.getStyle().isFullyLoaded()) {
+                updateHistoricalJourneyVisibility(getCurrentEffectiveMode());
+            } else {
+                Log.w(TAG_LOAD, "onResume: Map not ready, deferring historical journey visibility update. It should update once style is loaded.");
             }
         }
 
@@ -1180,7 +1202,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             // in case it changed while the app was paused and the service was rebound for some reason.
             boolean serviceIsTracking = mService.isCurrentlyTracking();
             if (MainActivity.this.isTrackingActive != serviceIsTracking) {
-                Log.w(TAG_SYNC, "ACTIVITY onResume (already bound): Service says tracking = " + serviceIsTracking + ". Current Activity flag was = " + MainActivity.this.isTrackingActive +". Syncing.");
                 MainActivity.this.isTrackingActive = serviceIsTracking;
                 if (uiUpdater != null) {
                     uiUpdater.updateStartStopButtonState(MainActivity.this.isTrackingActive, getCurrentEffectiveMode());
@@ -1189,7 +1210,6 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             updateCurrentPolylineFromService(); // Fetch and redraw the current polyline
         } else {
             Log.d(TAG, "onResume: Not bound to service yet, update will trigger onServiceConnected.");
-            // Binding is initiated in onStart if not already bound.
         }
         Log.d(TAG, "--------- onResume END ---------");
     }
@@ -1917,6 +1937,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
                 // Set the flag to indicate data needs a refresh
                 isJourneyDataLoaded = false;
+                mainActivityForceRefreshJourneys = true;
 
                 // Ensure permissions are still granted before attempting to load
                 if (journeyManager != null &&
@@ -2190,6 +2211,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                         if (tracksCleared) {
                             Log.i(TAG, "Settings indicate tracks were cleared. Reloading all journeys.");
                             isJourneyDataLoaded = false; // Reset flag
+                            mainActivityForceRefreshJourneys = true;
                             if (journeyManager != null && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) { // NEW
                                 journeyManager.loadAllPolylineData(); // Trigger reload
                             }
@@ -2199,6 +2221,10 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                             applyMapStyleFromSettings(); // New helper needed
                         } else {
                             Log.d(TAG, "SettingsActivity returned OK, but no major changes detected requiring map reload/restyle.");
+                        }
+                        if (forceRematch) {
+                            Log.i(TAG, "Settings indicate force rematch is required. Setting mainActivityForceRefreshJourneys = true.");
+                            mainActivityForceRefreshJourneys = true;
                         }
                         // Check if force rematch flag was set
                         if (forceRematch && journeyManager != null && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) { // NEW
@@ -3497,15 +3523,18 @@ private void navigateJourney(int direction) {
 
         if (mapView == null || mapManager == null || maplibreMap == null) {
             Log.e(TAG_LOAD, "onJourneysLoaded: Map components are null, stopping display process.");
-            onJourneyLoadError("Map components not ready");
-            isJourneyDataLoaded = true; // Still mark as attempted
+            onJourneyLoadError("Map components not ready for onJourneysLoaded");
+            // Even on error, we should probably mark that an attempt was made.
+            mainActivityJourneysEverLoaded = true; // Mark that a load attempt completed
+            mainActivityForceRefreshJourneys = false; // Don't immediately retry unless explicitly flagged
             return;
         }
         Style style = maplibreMap.getStyle();
         if (style == null || !style.isFullyLoaded()) {
             Log.e(TAG_LOAD, "onJourneysLoaded: Style not ready, stopping display process.");
             onJourneyLoadError("Map style not ready");
-            isJourneyDataLoaded = true; // Still mark as attempted
+            mainActivityJourneysEverLoaded = true;
+            mainActivityForceRefreshJourneys = false;
             return;
         }
 
